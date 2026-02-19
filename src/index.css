@@ -1,0 +1,94 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg-page: #faf9f7;
+    --bg-card: #ffffff;
+    --bg-sidebar: #f4f3f0;
+    --text-primary: #1a1a1a;
+    --text-secondary: #6b7280;
+    --border-color: #e5e3df;
+    --header-bg: #1a1a1a;
+    --header-text: #ffffff;
+    --accent: #2563eb;
+  }
+
+  .dark {
+    --bg-page: #1a1a1a;
+    --bg-card: #242424;
+    --bg-sidebar: #1e1e1e;
+    --text-primary: #f0ece4;
+    --text-secondary: #9ca3af;
+    --border-color: #3a3a3a;
+    --header-bg: #111111;
+    --header-text: #f0ece4;
+    --accent: #60a5fa;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Inter', system-ui, sans-serif;
+  background-color: var(--bg-page);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Shot card drag */
+.shot-card-dragging {
+  opacity: 0.4;
+}
+
+.shot-card-over {
+  outline: 2px dashed #2563eb;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 4px;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: #555;
+}
+
+/* Page print area */
+.page-container {
+  background: var(--bg-page);
+  width: 100%;
+}
+
+/* Note labels bold rendering */
+.notes-field strong {
+  font-weight: 700;
+}
+
+/* Inline textarea auto-resize */
+textarea {
+  resize: none;
+  overflow: hidden;
+}
+
+/* Dropdown select */
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+  background-position: right 4px center;
+  background-repeat: no-repeat;
+  background-size: 16px;
+  padding-right: 20px;
+}
