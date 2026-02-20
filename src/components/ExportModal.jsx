@@ -27,6 +27,7 @@ function prepareForCapture(el) {
     span.style.letterSpacing = cs.letterSpacing
     span.style.whiteSpace = isTextarea ? 'pre-wrap' : 'pre'
     span.style.display = isTextarea ? 'block' : 'inline-block'
+    span.style.verticalAlign = 'middle'
     span.style.margin = '0'
     span.style.padding = '0'
     span.style.border = 'none'
