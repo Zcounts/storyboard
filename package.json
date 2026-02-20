@@ -1,8 +1,8 @@
 {
   "name": "storyboard",
-  "productName": "Storyboard",
-  "description": "Film Shotlist Desktop App",
-  "author": "Storyboard",
+  "productName": "ShotScribe",
+  "description": "Storyboard + Shotlist Desktop App",
+  "author": "ShotScribe",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -38,8 +38,8 @@
     "wait-on": "^8.0.5"
   },
   "build": {
-    "appId": "com.storyboard.shotlist",
-    "productName": "Storyboard",
+    "appId": "com.shotscribe.shotlist",
+    "productName": "ShotScribe",
     "copyright": "Copyright © 2025",
     "icon": "assets/icon.png",
     "directories": {
@@ -67,7 +67,7 @@
       "allowToChangeInstallationDirectory": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Storyboard"
+      "shortcutName": "ShotScribe"
     },
     "linux": {
       "target": [

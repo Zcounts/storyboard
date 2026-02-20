@@ -68,26 +68,14 @@ export default function ShotCard({ shot, displayId, useDropdowns, sceneId }) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {/* Drag handle — top-right, shows on hover */}
+      {/* Card Header Row — entire row is the drag handle */}
       <div
         {...attributes}
         {...listeners}
-        className="drag-handle absolute top-0 right-0 w-6 h-6 flex items-center justify-center cursor-grab active:cursor-grabbing z-20 transition-opacity"
-        style={{ opacity: hovered ? 0.5 : 0 }}
+        className="flex items-center gap-1 px-2 py-1 cursor-grab active:cursor-grabbing select-none"
+        style={{ paddingLeft: 8 }}
         title="Drag to reorder"
       >
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" className="text-gray-500">
-          <circle cx="3" cy="2" r="1" />
-          <circle cx="7" cy="2" r="1" />
-          <circle cx="3" cy="5" r="1" />
-          <circle cx="7" cy="5" r="1" />
-          <circle cx="3" cy="8" r="1" />
-          <circle cx="7" cy="8" r="1" />
-        </svg>
-      </div>
-
-      {/* Card Header Row */}
-      <div className="flex items-center gap-1 px-2 py-1" style={{ paddingLeft: 8 }}>
         {/* Color indicator */}
         <div className="relative flex-shrink-0">
           <div

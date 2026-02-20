@@ -7,6 +7,7 @@ import {
   useSensor,
   useSensors,
 } from '@dnd-kit/core'
+import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable'
 import useStore from './store'
 import Toolbar from './components/Toolbar'
 import PageHeader from './components/PageHeader'
@@ -73,43 +74,44 @@ function SceneSection({
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      {pages.map((pageShots, pageIdx) => {
-        const globalPageNum = pageIndexOffset + pageIdx + 1
-        const isContinuation = pageIdx > 0
-        const isLastPage = pageIdx === pages.length - 1
+      <SortableContext items={allShotIds} strategy={rectSortingStrategy}>
+        {pages.map((pageShots, pageIdx) => {
+          const globalPageNum = pageIndexOffset + pageIdx + 1
+          const isContinuation = pageIdx > 0
+          const isLastPage = pageIdx === pages.length - 1
 
-        return (
-          <div
-            key={`${scene.id}_page_${pageIdx}`}
-            ref={el => { if (el) pageRefs.current[globalPageNum - 1] = el }}
-            className="page-document"
-            style={{
-              backgroundColor: isDark ? '#2a2a2a' : '#ffffff',
-              color: isDark ? '#e0e0e0' : '#1a1a1a',
-            }}
-          >
-            <PageHeader
-              scene={scene}
-              isContinuation={isContinuation}
-              pageNum={pageIdx + 1}
-            />
+          return (
+            <div
+              key={`${scene.id}_page_${pageIdx}`}
+              ref={el => { if (el) pageRefs.current[globalPageNum - 1] = el }}
+              className="page-document"
+              style={{
+                backgroundColor: isDark ? '#2a2a2a' : '#ffffff',
+                color: isDark ? '#e0e0e0' : '#1a1a1a',
+              }}
+            >
+              <PageHeader
+                scene={scene}
+                isContinuation={isContinuation}
+                pageNum={pageIdx + 1}
+              />
 
-            <ShotGrid
-              sceneId={scene.id}
-              shots={pageShots}
-              allShotIds={allShotIds}
-              columnCount={columnCount}
-              useDropdowns={useDropdowns}
-              showAddBtn={isLastPage}
-              onAddShot={() => addShot(scene.id)}
-            />
+              <ShotGrid
+                sceneId={scene.id}
+                shots={pageShots}
+                columnCount={columnCount}
+                useDropdowns={useDropdowns}
+                showAddBtn={isLastPage}
+                onAddShot={() => addShot(scene.id)}
+              />
 
-            <div className="page-footer">
-              {globalPageNum}
+              <div className="page-footer">
+                {globalPageNum}
+              </div>
             </div>
-          </div>
-        )
-      })}
+          )
+        })}
+      </SortableContext>
 
       <DragOverlay>
         {activeShot ? (
