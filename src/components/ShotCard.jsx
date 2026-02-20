@@ -77,10 +77,10 @@ export default function ShotCard({ shot, displayId, useDropdowns, sceneId }) {
         title="Drag to reorder"
       >
         {/* Color indicator */}
-        <div className="relative flex-shrink-0">
+        <div className="relative flex-shrink-0" style={{ display: 'flex', alignItems: 'center', alignSelf: 'center' }}>
           <div
             className="color-swatch"
-            style={{ backgroundColor: shot.color, width: 12, height: 12 }}
+            style={{ backgroundColor: shot.color, width: 12, height: 12, display: 'block', alignSelf: 'center', flexShrink: 0 }}
             onClick={(e) => { e.stopPropagation(); setShowColorPicker(!showColorPicker) }}
             title="Click to change color"
           />
@@ -94,8 +94,8 @@ export default function ShotCard({ shot, displayId, useDropdowns, sceneId }) {
         </div>
 
         {/* Shot ID + Camera name */}
-        <div className="flex-1 flex items-center gap-1 min-w-0">
-          <span className="font-bold text-xs whitespace-nowrap">{displayId} -</span>
+        <div className="flex-1 flex items-center gap-1 min-w-0" style={{ alignItems: 'center' }}>
+          <span className="font-bold text-xs whitespace-nowrap" style={{ verticalAlign: 'middle', lineHeight: 1 }}>{displayId} -</span>
           <input
             type="text"
             value={shot.cameraName}

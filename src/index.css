@@ -166,6 +166,7 @@
   .specs-table td {
     padding: 2px 4px;
     text-align: center;
+    vertical-align: middle;
     border: 1px solid #d1ccc3;
     font-size: 10px;
   }
