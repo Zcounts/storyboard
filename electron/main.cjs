@@ -19,7 +19,7 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: false,
     },
-    title: 'Storyboard',
+    title: 'ShotScribe',
     backgroundColor: '#e8e4db',
     show: false,
   })

@@ -1,5 +1,4 @@
 import React from 'react'
-import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable'
 import ShotCard from './ShotCard'
 
 function AddShotButton({ onClick }) {
@@ -21,7 +20,6 @@ function AddShotButton({ onClick }) {
  * Props:
  *  sceneId       – the scene this grid belongs to
  *  shots         – array of shots WITH displayId already attached
- *  allShotIds    – full ordered list of shot ids for the scene (for SortableContext)
  *  columnCount   – number of grid columns
  *  useDropdowns  – spec table input mode
  *  showAddBtn    – show the "Add Shot" button (only on last page)
@@ -30,7 +28,6 @@ function AddShotButton({ onClick }) {
 export default function ShotGrid({
   sceneId,
   shots,
-  allShotIds,
   columnCount,
   useDropdowns,
   showAddBtn = false,
@@ -44,19 +41,17 @@ export default function ShotGrid({
   }
 
   return (
-    <SortableContext items={allShotIds} strategy={rectSortingStrategy}>
-      <div style={gridStyle}>
-        {shots.map(shot => (
-          <ShotCard
-            key={shot.id}
-            shot={shot}
-            displayId={shot.displayId}
-            useDropdowns={useDropdowns}
-            sceneId={sceneId}
-          />
-        ))}
-        {showAddBtn && <AddShotButton onClick={onAddShot} />}
-      </div>
-    </SortableContext>
+    <div style={gridStyle}>
+      {shots.map(shot => (
+        <ShotCard
+          key={shot.id}
+          shot={shot}
+          displayId={shot.displayId}
+          useDropdowns={useDropdowns}
+          sceneId={sceneId}
+        />
+      ))}
+      {showAddBtn && <AddShotButton onClick={onAddShot} />}
+    </div>
   )
 }
