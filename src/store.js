@@ -45,8 +45,7 @@ function createScene(overrides = {}) {
     sceneLabel: `SCENE ${num}`,
     location: 'LOCATION',
     intOrExt: 'INT',
-    cameraName: 'Camera 1',
-    cameraBody: 'fx30',
+    cameras: [{ name: 'Camera 1', body: 'fx30' }],
     pageNotes: '*NOTE: \n*SHOOT ORDER: ',
     shots: [],
     ...overrides,
@@ -70,6 +69,7 @@ const initialScene = createScene({
   sceneLabel: 'SCENE 1',
   location: 'CLUB',
   intOrExt: 'INT',
+  cameras: [{ name: 'Camera 1', body: 'fx30' }],
 })
 
 const useStore = create((set, get) => ({
@@ -145,7 +145,7 @@ const useStore = create((set, get) => ({
     const scene = scenes.find(s => s.id === sceneId)
     if (!scene) return
     const newShot = createShot({
-      cameraName: scene.cameraName,
+      cameraName: scene.cameras?.[0]?.name || 'Camera 1',
       focalLength: defaultFocalLength,
       color: DEFAULT_COLOR,
     })
@@ -339,8 +339,7 @@ const useStore = create((set, get) => ({
         sceneLabel: scene.sceneLabel || 'SCENE 1',
         location: scene.location || 'LOCATION',
         intOrExt: scene.intOrExt || 'INT',
-        cameraName: scene.cameraName || 'Camera 1',
-        cameraBody: scene.cameraBody || 'fx30',
+        cameras: scene.cameras || [{ name: scene.cameraName || 'Camera 1', body: scene.cameraBody || 'fx30' }],
         pageNotes: scene.pageNotes || '',
         shots: (scene.shots || []).map(s => ({
           id: s.id || `shot_${Date.now()}_${++shotCounter}`,
@@ -359,8 +358,7 @@ const useStore = create((set, get) => ({
         sceneLabel: data.sceneLabel || 'SCENE 1',
         location: data.location || 'LOCATION',
         intOrExt: data.intOrExt || 'INT',
-        cameraName: data.cameraName || 'Camera 1',
-        cameraBody: data.cameraBody || 'fx30',
+        cameras: [{ name: data.cameraName || 'Camera 1', body: data.cameraBody || 'fx30' }],
         pageNotes: data.pageNotes || '',
         shots: (data.shots || []).map(s => ({
           id: s.id || `shot_${Date.now()}_${++shotCounter}`,
