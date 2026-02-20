@@ -27,21 +27,11 @@ function SettingsInput({ value, onChange, placeholder, type = 'text' }) {
 export default function SettingsPanel() {
   const settingsOpen = useStore(s => s.settingsOpen)
   const closeSettings = useStore(s => s.closeSettings)
-  const sceneLabel = useStore(s => s.sceneLabel)
-  const location = useStore(s => s.location)
-  const intOrExt = useStore(s => s.intOrExt)
-  const cameraName = useStore(s => s.cameraName)
-  const cameraBody = useStore(s => s.cameraBody)
   const columnCount = useStore(s => s.columnCount)
   const defaultFocalLength = useStore(s => s.defaultFocalLength)
   const theme = useStore(s => s.theme)
   const autoSave = useStore(s => s.autoSave)
   const useDropdowns = useStore(s => s.useDropdowns)
-  const setSceneLabel = useStore(s => s.setSceneLabel)
-  const setLocation = useStore(s => s.setLocation)
-  const setIntOrExt = useStore(s => s.setIntOrExt)
-  const setCameraName = useStore(s => s.setCameraName)
-  const setCameraBody = useStore(s => s.setCameraBody)
   const setColumnCount = useStore(s => s.setColumnCount)
   const setDefaultFocalLength = useStore(s => s.setDefaultFocalLength)
   const setTheme = useStore(s => s.setTheme)
@@ -67,39 +57,9 @@ export default function SettingsPanel() {
           </button>
         </div>
 
-        <SettingsRow label="Scene Label">
-          <SettingsInput value={sceneLabel} onChange={setSceneLabel} placeholder="SCENE 1" />
-        </SettingsRow>
-
-        <SettingsRow label="Location">
-          <SettingsInput value={location} onChange={setLocation} placeholder="LOCATION" />
-        </SettingsRow>
-
-        <SettingsRow label="INT / EXT">
-          <div className="flex gap-2">
-            {['INT', 'EXT', 'INT/EXT'].map(v => (
-              <button
-                key={v}
-                onClick={() => setIntOrExt(v)}
-                className={`flex-1 py-1 text-sm rounded border transition-colors ${
-                  intOrExt === v
-                    ? 'bg-blue-500 border-blue-400 text-white'
-                    : 'bg-gray-700 border-gray-600 text-gray-300 hover:border-gray-400'
-                }`}
-              >
-                {v}
-              </button>
-            ))}
-          </div>
-        </SettingsRow>
-
-        <SettingsRow label="Camera Name">
-          <SettingsInput value={cameraName} onChange={setCameraName} placeholder="Camera 1" />
-        </SettingsRow>
-
-        <SettingsRow label="Camera Body">
-          <SettingsInput value={cameraBody} onChange={setCameraBody} placeholder="fx30" />
-        </SettingsRow>
+        <p className="text-xs text-gray-500 mb-4">
+          Scene details (name, location, camera) are edited directly in each page header.
+        </p>
 
         <SettingsRow label="Default Focal Length">
           <SettingsInput value={defaultFocalLength} onChange={setDefaultFocalLength} placeholder="85mm" />

@@ -1,57 +1,58 @@
-import React, { useRef } from 'react'
+import React from 'react'
 import useStore from '../store'
 
-export default function PageHeader() {
-  const sceneLabel = useStore(s => s.sceneLabel)
-  const location = useStore(s => s.location)
-  const intOrExt = useStore(s => s.intOrExt)
-  const cameraName = useStore(s => s.cameraName)
-  const cameraBody = useStore(s => s.cameraBody)
-  const pageNotes = useStore(s => s.pageNotes)
-  const setSceneLabel = useStore(s => s.setSceneLabel)
-  const setLocation = useStore(s => s.setLocation)
-  const setIntOrExt = useStore(s => s.setIntOrExt)
-  const setCameraName = useStore(s => s.setCameraName)
-  const setCameraBody = useStore(s => s.setCameraBody)
-  const setPageNotes = useStore(s => s.setPageNotes)
+export default function PageHeader({ scene, isContinuation = false, pageNum = 1 }) {
+  const updateScene = useStore(s => s.updateScene)
+
+  const set = (updates) => updateScene(scene.id, updates)
+
+  const cycleIntExt = () => {
+    const next = { INT: 'EXT', EXT: 'INT/EXT', 'INT/EXT': 'INT' }
+    set({ intOrExt: next[scene.intOrExt] || 'INT' })
+  }
 
   return (
     <div className="page-header">
       {/* Left: Scene Label */}
       <div className="flex flex-col gap-1 min-w-0">
-        <div className="flex items-baseline gap-2">
+        <div className="flex items-baseline gap-2 flex-wrap">
           <input
             type="text"
-            value={sceneLabel}
-            onChange={e => setSceneLabel(e.target.value)}
+            value={scene.sceneLabel}
+            onChange={e => set({ sceneLabel: e.target.value })}
             className="text-2xl font-black tracking-tight bg-transparent border-none outline-none p-0"
-            style={{ minWidth: 80, width: `${Math.max(sceneLabel.length, 6)}ch` }}
+            style={{ minWidth: 80, width: `${Math.max((scene.sceneLabel || '').length, 6)}ch` }}
             placeholder="SCENE 1"
           />
           <span className="text-2xl font-black">|</span>
           <input
             type="text"
-            value={location}
-            onChange={e => setLocation(e.target.value)}
+            value={scene.location}
+            onChange={e => set({ location: e.target.value })}
             className="text-2xl font-black tracking-tight bg-transparent border-none outline-none p-0"
-            style={{ minWidth: 60, width: `${Math.max(location.length, 4)}ch` }}
+            style={{ minWidth: 60, width: `${Math.max((scene.location || '').length, 4)}ch` }}
             placeholder="LOCATION"
           />
           <span className="text-2xl font-black">|</span>
           <button
-            onClick={() => setIntOrExt(intOrExt === 'INT' ? 'EXT' : intOrExt === 'EXT' ? 'INT/EXT' : 'INT')}
+            onClick={cycleIntExt}
             className="text-2xl font-black bg-transparent border-none outline-none cursor-pointer hover:opacity-70 p-0"
           >
-            {intOrExt}
+            {scene.intOrExt}
           </button>
         </div>
+        {isContinuation && (
+          <div className="text-xs text-gray-400 font-semibold tracking-wide">
+            (CONTINUED — PAGE {pageNum})
+          </div>
+        )}
       </div>
 
       {/* Center: Notes block */}
       <div className="text-xs leading-relaxed border-l border-r border-gray-200 px-4">
         <textarea
-          value={pageNotes}
-          onChange={e => setPageNotes(e.target.value)}
+          value={scene.pageNotes}
+          onChange={e => set({ pageNotes: e.target.value })}
           className="w-full border-none outline-none resize-none text-xs leading-relaxed bg-transparent font-sans"
           rows={3}
           placeholder="*NOTE: &#10;*SHOOT ORDER: "
@@ -64,24 +65,27 @@ export default function PageHeader() {
       </div>
 
       {/* Right: Camera badge + SHOTLIST */}
-      <div className="flex flex-col items-end gap-1 flex-shrink-0">
+      <div className="flex flex-col items-end gap-2 flex-shrink-0">
         <div className="text-3xl font-black tracking-tight text-right">SHOTLIST</div>
-        <div className="border-2 border-black px-3 py-1 text-xs font-semibold text-center whitespace-nowrap">
+        <div
+          className="flex items-center justify-center gap-1 px-3 py-1 text-xs font-semibold"
+          style={{ border: '2px solid #1a1a1a', whiteSpace: 'nowrap' }}
+        >
           <input
             type="text"
-            value={cameraName}
-            onChange={e => setCameraName(e.target.value)}
+            value={scene.cameraName}
+            onChange={e => set({ cameraName: e.target.value })}
             className="bg-transparent border-none outline-none text-xs font-semibold text-center p-0"
-            style={{ width: `${Math.max(cameraName.length, 8)}ch` }}
+            style={{ width: `${Math.max((scene.cameraName || '').length, 8)}ch` }}
             placeholder="Camera 1"
           />
-          <span className="mx-1">=</span>
+          <span>=</span>
           <input
             type="text"
-            value={cameraBody}
-            onChange={e => setCameraBody(e.target.value)}
+            value={scene.cameraBody}
+            onChange={e => set({ cameraBody: e.target.value })}
             className="bg-transparent border-none outline-none text-xs font-semibold text-center p-0"
-            style={{ width: `${Math.max(cameraBody.length, 4)}ch` }}
+            style={{ width: `${Math.max((scene.cameraBody || '').length, 4)}ch` }}
             placeholder="fx30"
           />
         </div>

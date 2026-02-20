@@ -6,7 +6,7 @@ import ColorPicker from './ColorPicker'
 import SpecsTable from './SpecsTable'
 import NotesArea from './NotesArea'
 
-export default function ShotCard({ shot, displayId, useDropdowns }) {
+export default function ShotCard({ shot, displayId, useDropdowns, sceneId }) {
   const updateShotImage = useStore(s => s.updateShotImage)
   const updateShot = useStore(s => s.updateShot)
   const showContextMenu = useStore(s => s.showContextMenu)
@@ -31,9 +31,7 @@ export default function ShotCard({ shot, displayId, useDropdowns }) {
     opacity: isDragging ? 0.4 : 1,
   }
 
-  const handleImageClick = () => {
-    fileInputRef.current?.click()
-  }
+  const handleImageClick = () => fileInputRef.current?.click()
 
   const handleImageChange = (e) => {
     const file = e.target.files[0]
@@ -43,16 +41,14 @@ export default function ShotCard({ shot, displayId, useDropdowns }) {
       return
     }
     const reader = new FileReader()
-    reader.onload = (ev) => {
-      updateShotImage(shot.id, ev.target.result)
-    }
+    reader.onload = (ev) => updateShotImage(shot.id, ev.target.result)
     reader.readAsDataURL(file)
     e.target.value = ''
   }
 
   const handleContextMenu = (e) => {
     e.preventDefault()
-    showContextMenu(shot.id, e.clientX, e.clientY)
+    showContextMenu(shot.id, sceneId, e.clientX, e.clientY)
   }
 
   const handleFocalLengthChange = useCallback((e) => {
@@ -72,39 +68,28 @@ export default function ShotCard({ shot, displayId, useDropdowns }) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {/* Controls — delete button (hover only) + drag handle (always present for dnd) */}
-      <div className="absolute top-0 right-0 flex items-center z-20">
-        {hovered && (
-          <button
-            className="delete-btn w-5 h-5 flex items-center justify-center bg-red-500 text-white text-xs hover:bg-red-600 transition-colors"
-            onClick={(e) => { e.stopPropagation(); deleteShot(shot.id) }}
-            title="Delete shot"
-          >
-            ×
-          </button>
-        )}
-        <div
-          {...attributes}
-          {...listeners}
-          className="w-5 h-5 flex items-center justify-center cursor-grab active:cursor-grabbing transition-opacity"
-          style={{ opacity: hovered ? 0.6 : 0 }}
-          title="Drag to reorder"
-        >
-          <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor" className="text-gray-500">
-            <circle cx="3" cy="2" r="1" />
-            <circle cx="7" cy="2" r="1" />
-            <circle cx="3" cy="5" r="1" />
-            <circle cx="7" cy="5" r="1" />
-            <circle cx="3" cy="8" r="1" />
-            <circle cx="7" cy="8" r="1" />
-          </svg>
-        </div>
+      {/* Drag handle — top-right, shows on hover */}
+      <div
+        {...attributes}
+        {...listeners}
+        className="drag-handle absolute top-0 right-0 w-6 h-6 flex items-center justify-center cursor-grab active:cursor-grabbing z-20 transition-opacity"
+        style={{ opacity: hovered ? 0.5 : 0 }}
+        title="Drag to reorder"
+      >
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" className="text-gray-500">
+          <circle cx="3" cy="2" r="1" />
+          <circle cx="7" cy="2" r="1" />
+          <circle cx="3" cy="5" r="1" />
+          <circle cx="7" cy="5" r="1" />
+          <circle cx="3" cy="8" r="1" />
+          <circle cx="7" cy="8" r="1" />
+        </svg>
       </div>
 
       {/* Card Header Row */}
       <div className="flex items-center gap-1 px-2 py-1" style={{ paddingLeft: 8 }}>
         {/* Color indicator */}
-        <div className="relative">
+        <div className="relative flex-shrink-0">
           <div
             className="color-swatch"
             style={{ backgroundColor: shot.color, width: 12, height: 12 }}
@@ -133,7 +118,7 @@ export default function ShotCard({ shot, displayId, useDropdowns }) {
           />
         </div>
 
-        {/* Focal length */}
+        {/* Focal length — right-aligned, never covered */}
         <input
           type="text"
           value={shot.focalLength}
@@ -148,10 +133,7 @@ export default function ShotCard({ shot, displayId, useDropdowns }) {
       <div
         className="image-placeholder"
         onClick={handleImageClick}
-        style={{
-          border: `2px solid ${shot.color}`,
-          aspectRatio: '16/9',
-        }}
+        style={{ border: `2px solid ${shot.color}`, aspectRatio: '16/9' }}
       >
         {shot.image ? (
           <img src={shot.image} alt="Shot frame" />
@@ -175,18 +157,28 @@ export default function ShotCard({ shot, displayId, useDropdowns }) {
       </div>
 
       {/* Specs Table */}
-      <div className="px-0">
-        <SpecsTable
-          shotId={shot.id}
-          specs={shot.specs}
-          useDropdowns={useDropdowns}
-        />
-      </div>
+      <SpecsTable
+        shotId={shot.id}
+        specs={shot.specs}
+        useDropdowns={useDropdowns}
+      />
 
       {/* Notes Area */}
       <div className="border-t border-gray-200">
         <NotesArea shotId={shot.id} value={shot.notes} />
       </div>
+
+      {/* Delete button — bottom-right corner, avoids focal length field */}
+      {hovered && (
+        <button
+          className="delete-btn absolute bottom-0 right-0 w-5 h-5 flex items-center justify-center bg-red-500 text-white hover:bg-red-600 transition-colors z-20"
+          style={{ fontSize: 14, lineHeight: 1 }}
+          onClick={(e) => { e.stopPropagation(); deleteShot(shot.id) }}
+          title="Delete shot"
+        >
+          ×
+        </button>
+      )}
     </div>
   )
 }

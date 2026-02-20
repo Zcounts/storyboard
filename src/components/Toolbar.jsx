@@ -5,7 +5,9 @@ export default function Toolbar({ onExportPDF, onExportPNG }) {
   const projectName = useStore(s => s.projectName)
   const lastSaved = useStore(s => s.lastSaved)
   const autoSave = useStore(s => s.autoSave)
-  const shots = useStore(s => s.shots)
+  const scenes = useStore(s => s.scenes)
+  const shotCount = scenes.reduce((acc, s) => acc + s.shots.length, 0)
+  const sceneCount = scenes.length
   const toggleSettings = useStore(s => s.toggleSettings)
   const saveProject = useStore(s => s.saveProject)
   const openProject = useStore(s => s.openProject)
@@ -51,9 +53,9 @@ export default function Toolbar({ onExportPDF, onExportPNG }) {
           </button>
         )}
 
-        {/* Shot count */}
+        {/* Shot / scene count */}
         <span className="text-xs text-gray-400 flex-shrink-0">
-          {shots.length} shot{shots.length !== 1 ? 's' : ''}
+          {shotCount} shot{shotCount !== 1 ? 's' : ''} · {sceneCount} scene{sceneCount !== 1 ? 's' : ''}
         </span>
 
         {/* Auto-save indicator */}

@@ -1,19 +1,6 @@
-import React, { useCallback } from 'react'
-import {
-  DndContext,
-  DragOverlay,
-  closestCenter,
-  PointerSensor,
-  useSensor,
-  useSensors,
-} from '@dnd-kit/core'
-import {
-  SortableContext,
-  rectSortingStrategy,
-} from '@dnd-kit/sortable'
-import useStore from '../store'
+import React from 'react'
+import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable'
 import ShotCard from './ShotCard'
-import { useState } from 'react'
 
 function AddShotButton({ onClick }) {
   return (
@@ -28,37 +15,27 @@ function AddShotButton({ onClick }) {
   )
 }
 
-export default function ShotGrid() {
-  const shots = useStore(s => s.shots)
-  const getShotsWithIds = useStore(s => s.getShotsWithIds)
-  const addShot = useStore(s => s.addShot)
-  const reorderShots = useStore(s => s.reorderShots)
-  const columnCount = useStore(s => s.columnCount)
-  const useDropdowns = useStore(s => s.useDropdowns)
-  const [activeId, setActiveId] = useState(null)
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 8,
-      },
-    })
-  )
-
-  const shotsWithIds = getShotsWithIds()
-  const activeShot = activeId ? shotsWithIds.find(s => s.id === activeId) : null
-
-  const handleDragStart = useCallback((event) => {
-    setActiveId(event.active.id)
-  }, [])
-
-  const handleDragEnd = useCallback((event) => {
-    const { active, over } = event
-    setActiveId(null)
-    if (!over || active.id === over.id) return
-    reorderShots(active.id, over.id)
-  }, [reorderShots])
-
+/**
+ * ShotGrid — renders a grid of sortable shot cards for one page of a scene.
+ *
+ * Props:
+ *  sceneId       – the scene this grid belongs to
+ *  shots         – array of shots WITH displayId already attached
+ *  allShotIds    – full ordered list of shot ids for the scene (for SortableContext)
+ *  columnCount   – number of grid columns
+ *  useDropdowns  – spec table input mode
+ *  showAddBtn    – show the "Add Shot" button (only on last page)
+ *  onAddShot     – callback when Add Shot is clicked
+ */
+export default function ShotGrid({
+  sceneId,
+  shots,
+  allShotIds,
+  columnCount,
+  useDropdowns,
+  showAddBtn = false,
+  onAddShot,
+}) {
   const gridStyle = {
     display: 'grid',
     gridTemplateColumns: `repeat(${columnCount}, 1fr)`,
@@ -67,37 +44,19 @@ export default function ShotGrid() {
   }
 
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCenter}
-      onDragStart={handleDragStart}
-      onDragEnd={handleDragEnd}
-    >
-      <SortableContext items={shots.map(s => s.id)} strategy={rectSortingStrategy}>
-        <div style={gridStyle}>
-          {shotsWithIds.map(shot => (
-            <ShotCard
-              key={shot.id}
-              shot={shot}
-              displayId={shot.displayId}
-              useDropdowns={useDropdowns}
-            />
-          ))}
-          <AddShotButton onClick={addShot} />
-        </div>
-      </SortableContext>
-
-      <DragOverlay>
-        {activeShot ? (
-          <div className="drag-overlay">
-            <ShotCard
-              shot={activeShot}
-              displayId={activeShot.displayId}
-              useDropdowns={useDropdowns}
-            />
-          </div>
-        ) : null}
-      </DragOverlay>
-    </DndContext>
+    <SortableContext items={allShotIds} strategy={rectSortingStrategy}>
+      <div style={gridStyle}>
+        {shots.map(shot => (
+          <ShotCard
+            key={shot.id}
+            shot={shot}
+            displayId={shot.displayId}
+            useDropdowns={useDropdowns}
+            sceneId={sceneId}
+          />
+        ))}
+        {showAddBtn && <AddShotButton onClick={onAddShot} />}
+      </div>
+    </SortableContext>
   )
 }

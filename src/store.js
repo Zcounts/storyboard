@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { arrayMove } from '@dnd-kit/sortable'
 
-const CARD_COLORS = [
+export const CARD_COLORS = [
   '#4ade80', // green
   '#22d3ee', // cyan
   '#facc15', // yellow
@@ -15,12 +15,12 @@ const CARD_COLORS = [
 const DEFAULT_COLOR = '#4ade80'
 
 let shotCounter = 0
+let sceneCounter = 1
 
-function createShot(sceneNumber = 1, overrides = {}) {
+function createShot(overrides = {}) {
   shotCounter++
   return {
     id: `shot_${Date.now()}_${shotCounter}`,
-    sceneNumber,
     cameraName: 'Camera 1',
     focalLength: '85mm',
     color: DEFAULT_COLOR,
@@ -32,6 +32,23 @@ function createShot(sceneNumber = 1, overrides = {}) {
       equip: 'STICKS',
     },
     notes: '',
+    ...overrides,
+  }
+}
+
+function createScene(overrides = {}) {
+  const id = `scene_${Date.now()}_${sceneCounter}`
+  const num = sceneCounter
+  sceneCounter++
+  return {
+    id,
+    sceneLabel: `SCENE ${num}`,
+    location: 'LOCATION',
+    intOrExt: 'INT',
+    cameraName: 'Camera 1',
+    cameraBody: 'fx30',
+    pageNotes: '*NOTE: \n*SHOOT ORDER: ',
+    shots: [],
     ...overrides,
   }
 }
@@ -48,19 +65,21 @@ function getSceneNumber(sceneLabel) {
   return match ? parseInt(match[0]) : 1
 }
 
+const initialScene = createScene({
+  id: 'scene_1',
+  sceneLabel: 'SCENE 1',
+  location: 'CLUB',
+  intOrExt: 'INT',
+})
+
 const useStore = create((set, get) => ({
   // Project metadata
   projectPath: null,
   projectName: 'Untitled Shotlist',
   lastSaved: null,
 
-  // Page settings
-  sceneLabel: 'SCENE 1',
-  location: 'CLUB',
-  intOrExt: 'INT',
-  cameraName: 'Camera 1',
-  cameraBody: 'fx30',
-  pageNotes: '*NOTE: \n*SHOOT ORDER: ',
+  // Scenes (multi-scene support)
+  scenes: [initialScene],
 
   // Global settings
   columnCount: 4,
@@ -69,153 +88,211 @@ const useStore = create((set, get) => ({
   autoSave: true,
   useDropdowns: true,
 
-  // Shots
-  shots: [],
-
   // Recent projects
   recentProjects: JSON.parse(localStorage.getItem('recentProjects') || '[]'),
 
   // UI state
   settingsOpen: false,
-  contextMenu: null, // { shotId, x, y }
-  colorPickerShotId: null,
-  autoSaveTimer: null,
+  contextMenu: null, // { shotId, sceneId, x, y }
 
-  // Computed: get shots with their display IDs
-  getShotsWithIds: () => {
-    const { shots, sceneLabel } = get()
-    const sceneNum = getSceneNumber(sceneLabel)
-    return shots.map((shot, index) => ({
+  // ── Scene helpers ────────────────────────────────────────────────────
+
+  getScene: (sceneId) => get().scenes.find(s => s.id === sceneId),
+
+  // Returns shots for a scene with computed displayIds
+  getShotsForScene: (sceneId) => {
+    const scene = get().scenes.find(s => s.id === sceneId)
+    if (!scene) return []
+    const sceneNum = getSceneNumber(scene.sceneLabel)
+    return scene.shots.map((shot, index) => ({
       ...shot,
       displayId: `${sceneNum}${getShotLetter(index)}`,
     }))
   },
 
-  // Shot actions
-  addShot: () => {
-    const { shots, sceneLabel, cameraName, defaultFocalLength } = get()
-    const sceneNumber = getSceneNumber(sceneLabel)
-    const newShot = createShot(sceneNumber, {
-      cameraName,
-      focalLength: defaultFocalLength,
-      color: DEFAULT_COLOR,
-    })
-    set({ shots: [...shots, newShot] })
+  // Total shot count across all scenes (for toolbar)
+  getTotalShots: () => get().scenes.reduce((acc, s) => acc + s.shots.length, 0),
+
+  // ── Scene actions ────────────────────────────────────────────────────
+
+  addScene: () => {
+    const scene = createScene()
+    set(state => ({ scenes: [...state.scenes, scene] }))
     get()._scheduleAutoSave()
+    return scene.id
   },
 
-  deleteShot: (id) => {
-    set(state => ({ shots: state.shots.filter(s => s.id !== id) }))
-    get()._scheduleAutoSave()
-  },
-
-  duplicateShot: (id) => {
-    const { shots } = get()
-    const idx = shots.findIndex(s => s.id === id)
-    if (idx === -1) return
-    const original = shots[idx]
-    shotCounter++
-    const duplicate = {
-      ...original,
-      id: `shot_${Date.now()}_${shotCounter}`,
-      notes: original.notes,
-      image: original.image,
-      specs: { ...original.specs },
-    }
-    const newShots = [
-      ...shots.slice(0, idx + 1),
-      duplicate,
-      ...shots.slice(idx + 1),
-    ]
-    set({ shots: newShots })
-    get()._scheduleAutoSave()
-  },
-
-  reorderShots: (activeId, overId) => {
-    const { shots } = get()
-    const oldIndex = shots.findIndex(s => s.id === activeId)
-    const newIndex = shots.findIndex(s => s.id === overId)
-    if (oldIndex === -1 || newIndex === -1) return
-    set({ shots: arrayMove(shots, oldIndex, newIndex) })
-    get()._scheduleAutoSave()
-  },
-
-  updateShot: (id, updates) => {
+  deleteScene: (sceneId) => {
     set(state => ({
-      shots: state.shots.map(s => s.id === id ? { ...s, ...updates } : s),
+      scenes: state.scenes.length > 1
+        ? state.scenes.filter(s => s.id !== sceneId)
+        : state.scenes, // never delete the last scene
     }))
     get()._scheduleAutoSave()
   },
 
-  updateShotSpec: (id, specKey, value) => {
+  updateScene: (sceneId, updates) => {
     set(state => ({
-      shots: state.shots.map(s =>
-        s.id === id ? { ...s, specs: { ...s.specs, [specKey]: value } } : s
+      scenes: state.scenes.map(s => s.id === sceneId ? { ...s, ...updates } : s),
+    }))
+    get()._scheduleAutoSave()
+  },
+
+  // ── Shot actions (most work by shotId, searching across all scenes) ──
+
+  addShot: (sceneId) => {
+    const { scenes, defaultFocalLength } = get()
+    const scene = scenes.find(s => s.id === sceneId)
+    if (!scene) return
+    const newShot = createShot({
+      cameraName: scene.cameraName,
+      focalLength: defaultFocalLength,
+      color: DEFAULT_COLOR,
+    })
+    set(state => ({
+      scenes: state.scenes.map(s =>
+        s.id === sceneId ? { ...s, shots: [...s.shots, newShot] } : s
       ),
     }))
     get()._scheduleAutoSave()
   },
 
-  updateShotNotes: (id, notes) => {
+  deleteShot: (shotId) => {
     set(state => ({
-      shots: state.shots.map(s => s.id === id ? { ...s, notes } : s),
+      scenes: state.scenes.map(s => ({
+        ...s,
+        shots: s.shots.filter(sh => sh.id !== shotId),
+      })),
     }))
     get()._scheduleAutoSave()
   },
 
-  updateShotColor: (id, color) => {
+  duplicateShot: (shotId) => {
     set(state => ({
-      shots: state.shots.map(s => s.id === id ? { ...s, color } : s),
+      scenes: state.scenes.map(scene => {
+        const idx = scene.shots.findIndex(s => s.id === shotId)
+        if (idx === -1) return scene
+        shotCounter++
+        const original = scene.shots[idx]
+        const duplicate = {
+          ...original,
+          id: `shot_${Date.now()}_${shotCounter}`,
+          specs: { ...original.specs },
+        }
+        return {
+          ...scene,
+          shots: [
+            ...scene.shots.slice(0, idx + 1),
+            duplicate,
+            ...scene.shots.slice(idx + 1),
+          ],
+        }
+      }),
     }))
     get()._scheduleAutoSave()
   },
 
-  updateShotImage: (id, imageBase64) => {
+  reorderShots: (sceneId, activeId, overId) => {
     set(state => ({
-      shots: state.shots.map(s => s.id === id ? { ...s, image: imageBase64 } : s),
+      scenes: state.scenes.map(scene => {
+        if (scene.id !== sceneId) return scene
+        const oldIndex = scene.shots.findIndex(s => s.id === activeId)
+        const newIndex = scene.shots.findIndex(s => s.id === overId)
+        if (oldIndex === -1 || newIndex === -1) return scene
+        return { ...scene, shots: arrayMove(scene.shots, oldIndex, newIndex) }
+      }),
     }))
     get()._scheduleAutoSave()
   },
 
-  // Page/document settings
-  setSceneLabel: (label) => { set({ sceneLabel: label }); get()._scheduleAutoSave() },
-  setLocation: (location) => { set({ location }); get()._scheduleAutoSave() },
-  setIntOrExt: (value) => { set({ intOrExt: value }); get()._scheduleAutoSave() },
-  setCameraName: (name) => { set({ cameraName: name }); get()._scheduleAutoSave() },
-  setCameraBody: (body) => { set({ cameraBody: body }); get()._scheduleAutoSave() },
-  setPageNotes: (notes) => { set({ pageNotes: notes }); get()._scheduleAutoSave() },
-  setProjectName: (name) => { set({ projectName: name }) },
+  updateShot: (shotId, updates) => {
+    set(state => ({
+      scenes: state.scenes.map(s => ({
+        ...s,
+        shots: s.shots.map(sh => sh.id === shotId ? { ...sh, ...updates } : sh),
+      })),
+    }))
+    get()._scheduleAutoSave()
+  },
 
-  // Global settings
-  setColumnCount: (count) => { set({ columnCount: count }) },
-  setDefaultFocalLength: (fl) => { set({ defaultFocalLength: fl }) },
-  setTheme: (theme) => { set({ theme }) },
-  setAutoSave: (enabled) => { set({ autoSave: enabled }) },
-  setUseDropdowns: (val) => { set({ useDropdowns: val }) },
+  updateShotSpec: (shotId, specKey, value) => {
+    set(state => ({
+      scenes: state.scenes.map(s => ({
+        ...s,
+        shots: s.shots.map(sh =>
+          sh.id === shotId ? { ...sh, specs: { ...sh.specs, [specKey]: value } } : sh
+        ),
+      })),
+    }))
+    get()._scheduleAutoSave()
+  },
 
-  // UI actions
+  updateShotNotes: (shotId, notes) => {
+    set(state => ({
+      scenes: state.scenes.map(s => ({
+        ...s,
+        shots: s.shots.map(sh => sh.id === shotId ? { ...sh, notes } : sh),
+      })),
+    }))
+    get()._scheduleAutoSave()
+  },
+
+  updateShotColor: (shotId, color) => {
+    set(state => ({
+      scenes: state.scenes.map(s => ({
+        ...s,
+        shots: s.shots.map(sh => sh.id === shotId ? { ...sh, color } : sh),
+      })),
+    }))
+    get()._scheduleAutoSave()
+  },
+
+  updateShotImage: (shotId, imageBase64) => {
+    set(state => ({
+      scenes: state.scenes.map(s => ({
+        ...s,
+        shots: s.shots.map(sh => sh.id === shotId ? { ...sh, image: imageBase64 } : sh),
+      })),
+    }))
+    get()._scheduleAutoSave()
+  },
+
+  // ── Global settings ──────────────────────────────────────────────────
+
+  setColumnCount: (count) => set({ columnCount: count }),
+  setDefaultFocalLength: (fl) => set({ defaultFocalLength: fl }),
+  setTheme: (theme) => set({ theme }),
+  setAutoSave: (enabled) => set({ autoSave: enabled }),
+  setUseDropdowns: (val) => set({ useDropdowns: val }),
+  setProjectName: (name) => set({ projectName: name }),
+
+  // ── UI actions ───────────────────────────────────────────────────────
+
   toggleSettings: () => set(state => ({ settingsOpen: !state.settingsOpen })),
   closeSettings: () => set({ settingsOpen: false }),
 
-  showContextMenu: (shotId, x, y) => set({ contextMenu: { shotId, x, y } }),
+  showContextMenu: (shotId, sceneId, x, y) => set({ contextMenu: { shotId, sceneId, x, y } }),
   hideContextMenu: () => set({ contextMenu: null }),
 
-  showColorPicker: (shotId) => set({ colorPickerShotId: shotId }),
-  hideColorPicker: () => set({ colorPickerShotId: null }),
+  // ── Save / Load ──────────────────────────────────────────────────────
 
-  // Save / Load
   getProjectData: () => {
     const {
-      projectName, sceneLabel, location, intOrExt,
-      cameraName, cameraBody, pageNotes, columnCount,
-      defaultFocalLength, theme, autoSave, useDropdowns, shots,
+      projectName, columnCount, defaultFocalLength,
+      theme, autoSave, useDropdowns, scenes,
     } = get()
     return {
-      version: 1,
-      projectName, sceneLabel, location, intOrExt,
-      cameraName, cameraBody, pageNotes, columnCount,
-      defaultFocalLength, theme, autoSave, useDropdowns,
-      shots: shots.map(s => ({ ...s })),
+      version: 2,
+      projectName,
+      columnCount,
+      defaultFocalLength,
+      theme,
+      autoSave,
+      useDropdowns,
+      scenes: scenes.map(scene => ({
+        ...scene,
+        shots: scene.shots.map(s => ({ ...s })),
+      })),
       exportedAt: new Date().toISOString(),
     }
   },
@@ -230,13 +307,11 @@ const useStore = create((set, get) => ({
     const defaultName = `${data.projectName.replace(/[^a-z0-9]/gi, '_')}.shotlist`
 
     if (window.electronAPI) {
-      // Native desktop: use system Save dialog
       const result = await window.electronAPI.saveProject(defaultName, json)
       if (result.success) {
         set({ lastSaved: new Date().toISOString(), projectPath: result.filePath })
       }
     } else {
-      // Browser fallback: trigger download
       const blob = new Blob([json], { type: 'application/json' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -252,40 +327,67 @@ const useStore = create((set, get) => ({
 
   loadProject: (data) => {
     const {
-      projectName, sceneLabel, location, intOrExt,
-      cameraName, cameraBody, pageNotes, columnCount,
-      defaultFocalLength, theme, autoSave, useDropdowns, shots,
+      projectName, columnCount, defaultFocalLength,
+      theme, autoSave, useDropdowns,
     } = data
+
+    let scenes
+    if (data.scenes && Array.isArray(data.scenes)) {
+      // New multi-scene format (v2)
+      scenes = data.scenes.map(scene => ({
+        id: scene.id || `scene_${Date.now()}_${++sceneCounter}`,
+        sceneLabel: scene.sceneLabel || 'SCENE 1',
+        location: scene.location || 'LOCATION',
+        intOrExt: scene.intOrExt || 'INT',
+        cameraName: scene.cameraName || 'Camera 1',
+        cameraBody: scene.cameraBody || 'fx30',
+        pageNotes: scene.pageNotes || '',
+        shots: (scene.shots || []).map(s => ({
+          id: s.id || `shot_${Date.now()}_${++shotCounter}`,
+          cameraName: s.cameraName || 'Camera 1',
+          focalLength: s.focalLength || '85mm',
+          color: s.color || DEFAULT_COLOR,
+          image: s.image || null,
+          specs: s.specs || { size: '', type: '', move: '', equip: '' },
+          notes: s.notes || '',
+        })),
+      }))
+    } else {
+      // Old single-scene format (v1) – migrate
+      scenes = [createScene({
+        id: 'scene_1',
+        sceneLabel: data.sceneLabel || 'SCENE 1',
+        location: data.location || 'LOCATION',
+        intOrExt: data.intOrExt || 'INT',
+        cameraName: data.cameraName || 'Camera 1',
+        cameraBody: data.cameraBody || 'fx30',
+        pageNotes: data.pageNotes || '',
+        shots: (data.shots || []).map(s => ({
+          id: s.id || `shot_${Date.now()}_${++shotCounter}`,
+          cameraName: s.cameraName || 'Camera 1',
+          focalLength: s.focalLength || '85mm',
+          color: s.color || DEFAULT_COLOR,
+          image: s.image || null,
+          specs: s.specs || { size: '', type: '', move: '', equip: '' },
+          notes: s.notes || '',
+        })),
+      })]
+    }
+
     set({
       projectName: projectName || 'Untitled Shotlist',
-      sceneLabel: sceneLabel || 'SCENE 1',
-      location: location || 'LOCATION',
-      intOrExt: intOrExt || 'INT',
-      cameraName: cameraName || 'Camera 1',
-      cameraBody: cameraBody || 'fx30',
-      pageNotes: pageNotes || '',
       columnCount: columnCount || 4,
       defaultFocalLength: defaultFocalLength || '85mm',
       theme: theme || 'light',
       autoSave: autoSave !== undefined ? autoSave : true,
       useDropdowns: useDropdowns !== undefined ? useDropdowns : true,
-      shots: (shots || []).map(s => ({
-        id: s.id || `shot_${Date.now()}_${++shotCounter}`,
-        sceneNumber: s.sceneNumber || 1,
-        cameraName: s.cameraName || 'Camera 1',
-        focalLength: s.focalLength || '85mm',
-        color: s.color || DEFAULT_COLOR,
-        image: s.image || null,
-        specs: s.specs || { size: '', type: '', move: '', equip: '' },
-        notes: s.notes || '',
-      })),
+      scenes,
       lastSaved: new Date().toISOString(),
     })
   },
 
   openProject: async () => {
     if (window.electronAPI) {
-      // Native desktop: use system Open dialog
       const result = await window.electronAPI.openProject()
       if (!result.success) return
       try {
@@ -293,8 +395,10 @@ const useStore = create((set, get) => ({
         get().loadProject(data)
         const fileName = result.filePath.split(/[\\/]/).pop()
         const recent = get().recentProjects.filter(r => r.path !== result.filePath)
+        const totalShots = (data.scenes || [{ shots: data.shots || [] }])
+          .reduce((a, s) => a + (s.shots || []).length, 0)
         const newRecent = [
-          { name: fileName, path: result.filePath, date: new Date().toISOString(), shots: data.shots?.length || 0 },
+          { name: fileName, path: result.filePath, date: new Date().toISOString(), shots: totalShots },
           ...recent,
         ].slice(0, 10)
         set({ recentProjects: newRecent, projectPath: result.filePath })
@@ -303,7 +407,6 @@ const useStore = create((set, get) => ({
         alert('Failed to load project: Invalid file format')
       }
     } else {
-      // Browser fallback: file input
       const input = document.createElement('input')
       input.type = 'file'
       input.accept = '.shotlist,.json'
@@ -316,8 +419,10 @@ const useStore = create((set, get) => ({
             const data = JSON.parse(ev.target.result)
             get().loadProject(data)
             const recent = get().recentProjects.filter(r => r.name !== file.name)
+            const totalShots = (data.scenes || [{ shots: data.shots || [] }])
+              .reduce((a, s) => a + (s.shots || []).length, 0)
             const newRecent = [
-              { name: file.name, path: file.name, date: new Date().toISOString(), shots: data.shots?.length || 0 },
+              { name: file.name, path: file.name, date: new Date().toISOString(), shots: totalShots },
               ...recent,
             ].slice(0, 10)
             set({ recentProjects: newRecent })
@@ -346,8 +451,10 @@ const useStore = create((set, get) => ({
       get().loadProject(data)
       const fileName = filePath.split(/[\\/]/).pop()
       const recent = get().recentProjects.filter(r => r.path !== filePath)
+      const totalShots = (data.scenes || [{ shots: data.shots || [] }])
+        .reduce((a, s) => a + (s.shots || []).length, 0)
       const newRecent = [
-        { name: fileName, path: filePath, date: new Date().toISOString(), shots: data.shots?.length || 0 },
+        { name: fileName, path: filePath, date: new Date().toISOString(), shots: totalShots },
         ...recent,
       ].slice(0, 10)
       set({ recentProjects: newRecent, projectPath: filePath })
@@ -358,23 +465,19 @@ const useStore = create((set, get) => ({
   },
 
   newProject: () => {
-    const name = prompt('Scene name:', 'SCENE 1')
+    const name = prompt('Project name:', 'Untitled Shotlist')
     if (name === null) return
+    const scene = createScene({ sceneLabel: 'SCENE 1', location: 'LOCATION' })
     set({
       projectName: name,
-      sceneLabel: name.toUpperCase(),
-      location: 'LOCATION',
-      intOrExt: 'INT',
-      cameraName: 'Camera 1',
-      cameraBody: 'fx30',
-      pageNotes: '*NOTE: \n*SHOOT ORDER: ',
-      shots: [],
+      scenes: [scene],
       projectPath: null,
       lastSaved: null,
     })
   },
 
-  // Auto-save
+  // ── Auto-save ────────────────────────────────────────────────────────
+
   _autoSaveTimeout: null,
   _scheduleAutoSave: () => {
     const state = get()
