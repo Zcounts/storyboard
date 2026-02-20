@@ -11,6 +11,29 @@ export default function PageHeader({ scene, isContinuation = false, pageNum = 1 
     set({ intOrExt: next[scene.intOrExt] || 'INT' })
   }
 
+  const cameras = scene.cameras || [{ name: scene.cameraName || 'Camera 1', body: scene.cameraBody || 'fx30' }]
+
+  const updateCamera = (idx, field, value) => {
+    const updated = cameras.map((c, i) => i === idx ? { ...c, [field]: value } : c)
+    set({ cameras: updated })
+  }
+
+  const addCameraAfter = (idx) => {
+    const updated = [
+      ...cameras.slice(0, idx + 1),
+      { name: `Camera ${cameras.length + 1}`, body: '' },
+      ...cameras.slice(idx + 1),
+    ]
+    set({ cameras: updated })
+  }
+
+  const handleCameraKeyDown = (e, idx) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      addCameraAfter(idx)
+    }
+  }
+
   return (
     <div className="page-header">
       {/* Left: Scene Label */}
@@ -20,23 +43,23 @@ export default function PageHeader({ scene, isContinuation = false, pageNum = 1 
             type="text"
             value={scene.sceneLabel}
             onChange={e => set({ sceneLabel: e.target.value })}
-            className="text-2xl font-black tracking-tight bg-transparent border-none outline-none p-0"
+            className="text-xl font-black tracking-tight bg-transparent border-none outline-none p-0"
             style={{ minWidth: 80, width: `${Math.max((scene.sceneLabel || '').length, 6)}ch` }}
             placeholder="SCENE 1"
           />
-          <span className="text-2xl font-black">|</span>
+          <span className="text-xl font-black">|</span>
           <input
             type="text"
             value={scene.location}
             onChange={e => set({ location: e.target.value })}
-            className="text-2xl font-black tracking-tight bg-transparent border-none outline-none p-0"
+            className="text-xl font-black tracking-tight bg-transparent border-none outline-none p-0"
             style={{ minWidth: 60, width: `${Math.max((scene.location || '').length, 4)}ch` }}
             placeholder="LOCATION"
           />
-          <span className="text-2xl font-black">|</span>
+          <span className="text-xl font-black">|</span>
           <button
             onClick={cycleIntExt}
-            className="text-2xl font-black bg-transparent border-none outline-none cursor-pointer hover:opacity-70 p-0"
+            className="text-xl font-black bg-transparent border-none outline-none cursor-pointer hover:opacity-70 p-0"
           >
             {scene.intOrExt}
           </button>
@@ -64,31 +87,31 @@ export default function PageHeader({ scene, isContinuation = false, pageNum = 1 
         />
       </div>
 
-      {/* Right: Camera badge + SHOTLIST */}
-      <div className="flex flex-col items-end gap-2 flex-shrink-0">
-        <div className="text-3xl font-black tracking-tight text-right">SHOTLIST</div>
-        <div
-          className="flex items-center justify-center gap-1 px-3 py-1 text-xs font-semibold"
-          style={{ border: '2px solid #1a1a1a', whiteSpace: 'nowrap' }}
-        >
-          <input
-            type="text"
-            value={scene.cameraName}
-            onChange={e => set({ cameraName: e.target.value })}
-            className="bg-transparent border-none outline-none text-xs font-semibold text-center p-0"
-            style={{ width: `${Math.max((scene.cameraName || '').length, 8)}ch` }}
-            placeholder="Camera 1"
-          />
-          <span>=</span>
-          <input
-            type="text"
-            value={scene.cameraBody}
-            onChange={e => set({ cameraBody: e.target.value })}
-            className="bg-transparent border-none outline-none text-xs font-semibold text-center p-0"
-            style={{ width: `${Math.max((scene.cameraBody || '').length, 4)}ch` }}
-            placeholder="fx30"
-          />
-        </div>
+      {/* Right: Camera lines, vertically centered */}
+      <div className="flex flex-col items-end justify-center gap-0.5 flex-shrink-0">
+        {cameras.map((cam, idx) => (
+          <div key={idx} className="flex items-center gap-1 text-xs font-semibold">
+            <input
+              type="text"
+              value={cam.name}
+              onChange={e => updateCamera(idx, 'name', e.target.value)}
+              onKeyDown={e => handleCameraKeyDown(e, idx)}
+              className="bg-transparent border-none outline-none text-xs font-semibold text-right p-0"
+              style={{ minWidth: 40, width: `${Math.max((cam.name || '').length, 8)}ch` }}
+              placeholder="Camera 1"
+            />
+            <span>=</span>
+            <input
+              type="text"
+              value={cam.body}
+              onChange={e => updateCamera(idx, 'body', e.target.value)}
+              onKeyDown={e => handleCameraKeyDown(e, idx)}
+              className="bg-transparent border-none outline-none text-xs font-semibold p-0"
+              style={{ minWidth: 20, width: `${Math.max((cam.body || '').length, 4)}ch` }}
+              placeholder="fx30"
+            />
+          </div>
+        ))}
       </div>
     </div>
   )
