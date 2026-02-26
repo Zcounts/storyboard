@@ -33,7 +33,7 @@ const ALL_COLUMNS = [
   { key: 'specs.equip',    label: 'EQUIPMENT',          width: 100, type: 'dropdown', options: EQUIP_OPTIONS },
   { key: 'specs.move',     label: 'MOVEMENT',           width: 96,  type: 'dropdown', options: MOVE_OPTIONS },
   { key: 'specs.size',     label: 'COVERAGE',           width: 110, type: 'dropdown', options: SIZE_OPTIONS },
-  { key: 'notes',          label: 'NOTES',              width: 160, type: 'text' },
+  { key: 'notes',          label: 'NOTES',              width: 160, type: 'textarea' },
   { key: 'scriptTime',     label: 'SCRIPT TIME',        width: 84,  type: 'text' },
   { key: 'setupTime',      label: 'SETUP TIME',         width: 84,  type: 'text' },
   { key: 'predictedTakes', label: 'PREDIC# OF TAKES',  width: 104, type: 'text' },
@@ -155,13 +155,21 @@ function EditableCell({ value, onChange, type, options, isChecked, isDark }) {
 
   if (editing) {
     if (type === 'dropdown') {
+      // Commit immediately on selection to avoid the stale-closure bug where
+      // onBlur fires in the same event flush as onChange, before draft state
+      // has been committed to a new render cycle.
       const isCustom = options && !options.includes(value)
       return (
         <select
           ref={inputRef}
           value={draft}
-          onChange={e => setDraft(e.target.value)}
-          onBlur={commit}
+          onChange={e => {
+            const newVal = e.target.value
+            setDraft(newVal)
+            setEditing(false)
+            if (newVal !== (value ?? '')) onChange(newVal)
+          }}
+          onBlur={() => setEditing(false)}
           style={{ ...editStyle, padding: '0 4px', cursor: 'pointer' }}
         >
           {isCustom && <option value={value ?? ''}>{value}</option>}
@@ -169,6 +177,30 @@ function EditableCell({ value, onChange, type, options, isChecked, isDark }) {
         </select>
       )
     }
+
+    if (type === 'textarea') {
+      return (
+        <textarea
+          ref={inputRef}
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            // Escape cancels; Enter is allowed for newlines in textarea
+            if (e.key === 'Escape') { setDraft(value ?? ''); setEditing(false) }
+          }}
+          style={{
+            ...editStyle,
+            padding: '2px 6px',
+            resize: 'none',
+            overflow: 'auto',
+            lineHeight: 1.4,
+            verticalAlign: 'top',
+          }}
+        />
+      )
+    }
+
     return (
       <input
         ref={inputRef}
@@ -731,7 +763,7 @@ export default function ShotlistTab() {
             <circle cx="8" cy="8" r="2.5" />
             <path d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8M3.4 3.4l1.27 1.27M11.33 11.33l1.27 1.27M12.6 3.4l-1.27 1.27M4.67 11.33l-1.27 1.27" />
           </svg>
-          Columns
+          Configure Columns
         </button>
 
         {configPanelOpen && (
