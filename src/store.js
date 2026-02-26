@@ -32,6 +32,12 @@ function createShot(overrides = {}) {
       equip: 'STICKS',
     },
     notes: '',
+    // AD-specific shotlist fields (not shown in storyboard view)
+    scriptTime: '',
+    setupTime: '',
+    predictedTakes: '',
+    shootTime: '',
+    takeNumber: '',
     ...overrides,
   }
 }
@@ -94,6 +100,7 @@ const useStore = create((set, get) => ({
   // UI state
   settingsOpen: false,
   contextMenu: null, // { shotId, sceneId, x, y }
+  activeTab: 'storyboard', // 'storyboard' | 'shotlist'
 
   // ── Scene helpers ────────────────────────────────────────────────────
 
@@ -270,6 +277,7 @@ const useStore = create((set, get) => ({
 
   toggleSettings: () => set(state => ({ settingsOpen: !state.settingsOpen })),
   closeSettings: () => set({ settingsOpen: false }),
+  setActiveTab: (tab) => set({ activeTab: tab }),
 
   showContextMenu: (shotId, sceneId, x, y) => set({ contextMenu: { shotId, sceneId, x, y } }),
   hideContextMenu: () => set({ contextMenu: null }),
@@ -349,6 +357,11 @@ const useStore = create((set, get) => ({
           image: s.image || null,
           specs: s.specs || { size: '', type: '', move: '', equip: '' },
           notes: s.notes || '',
+          scriptTime: s.scriptTime || '',
+          setupTime: s.setupTime || '',
+          predictedTakes: s.predictedTakes || '',
+          shootTime: s.shootTime || '',
+          takeNumber: s.takeNumber || '',
         })),
       }))
     } else {
@@ -368,6 +381,11 @@ const useStore = create((set, get) => ({
           image: s.image || null,
           specs: s.specs || { size: '', type: '', move: '', equip: '' },
           notes: s.notes || '',
+          scriptTime: s.scriptTime || '',
+          setupTime: s.setupTime || '',
+          predictedTakes: s.predictedTakes || '',
+          shootTime: s.shootTime || '',
+          takeNumber: s.takeNumber || '',
         })),
       })]
     }

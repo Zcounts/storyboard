@@ -17,6 +17,7 @@ import SettingsPanel from './components/SettingsPanel'
 import ContextMenu from './components/ContextMenu'
 import ExportModal from './components/ExportModal'
 import RecentProjects from './components/RecentProjects'
+import ShotlistTab from './components/ShotlistTab'
 
 // Cards per page based on column count (2 rows)
 const CARDS_PER_PAGE = { 4: 8, 3: 6, 2: 4 }
@@ -133,6 +134,8 @@ export default function App() {
   const getProjectData = useStore(s => s.getProjectData)
   const hideContextMenu = useStore(s => s.hideContextMenu)
   const addScene = useStore(s => s.addScene)
+  const activeTab = useStore(s => s.activeTab)
+  const setActiveTab = useStore(s => s.setActiveTab)
 
   const [exportModalOpen, setExportModalOpen] = useState(false)
   // pageRefs is a flat array of all page-document elements in render order
@@ -206,45 +209,87 @@ export default function App() {
       {/* Recent Projects bar */}
       <RecentProjects />
 
-      {/* Main content — paginated print preview */}
-      <div className="flex-1 py-6 px-4 overflow-x-auto">
-        <div className="pages-container">
-          {scenes.map((scene, sceneIdx) => (
-            <React.Fragment key={scene.id}>
-              {/* Scene separator (between scenes) */}
-              {sceneIdx > 0 && (
-                <div className="scene-separator">
-                  <span className="scene-separator-label">NEW SCENE</span>
-                </div>
-              )}
+      {/* Top-level tab navigation */}
+      <div className="tab-nav" style={{
+        display: 'flex',
+        borderBottom: isDark ? '1px solid #333' : '1px solid #ccc',
+        backgroundColor: isDark ? '#111' : '#d4cfc6',
+        paddingLeft: '16px',
+      }}>
+        {['storyboard', 'shotlist'].map(tab => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            style={{
+              padding: '8px 20px',
+              fontFamily: 'monospace',
+              fontSize: '12px',
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              letterSpacing: '0.08em',
+              border: 'none',
+              borderBottom: activeTab === tab
+                ? (isDark ? '2px solid #fff' : '2px solid #222')
+                : '2px solid transparent',
+              background: 'none',
+              color: activeTab === tab
+                ? (isDark ? '#fff' : '#222')
+                : (isDark ? '#666' : '#888'),
+              cursor: 'pointer',
+              transition: 'color 0.15s, border-color 0.15s',
+              marginBottom: '-1px',
+            }}
+          >
+            {tab === 'storyboard' ? 'Storyboard' : 'Shotlist'}
+          </button>
+        ))}
+      </div>
 
-              <SceneSection
-                scene={scene}
-                columnCount={columnCount}
-                useDropdowns={useDropdowns}
-                pageIndexOffset={scenePageOffsets[sceneIdx]}
-                pageRefs={pageRefs}
-              />
-            </React.Fragment>
-          ))}
+      {/* Main content */}
+      {activeTab === 'storyboard' ? (
+        <div className="flex-1 py-6 px-4 overflow-x-auto">
+          <div className="pages-container">
+            {scenes.map((scene, sceneIdx) => (
+              <React.Fragment key={scene.id}>
+                {/* Scene separator (between scenes) */}
+                {sceneIdx > 0 && (
+                  <div className="scene-separator">
+                    <span className="scene-separator-label">NEW SCENE</span>
+                  </div>
+                )}
 
-          {/* Add Scene button */}
-          <div className="add-scene-row">
-            <button
-              className="add-scene-btn"
-              onClick={addScene}
-              title="Add a new scene (new page)"
-            >
-              <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="10" cy="10" r="8" />
-                <line x1="10" y1="6" x2="10" y2="14" />
-                <line x1="6" y1="10" x2="14" y2="10" />
-              </svg>
-              Add Scene
-            </button>
+                <SceneSection
+                  scene={scene}
+                  columnCount={columnCount}
+                  useDropdowns={useDropdowns}
+                  pageIndexOffset={scenePageOffsets[sceneIdx]}
+                  pageRefs={pageRefs}
+                />
+              </React.Fragment>
+            ))}
+
+            {/* Add Scene button */}
+            <div className="add-scene-row">
+              <button
+                className="add-scene-btn"
+                onClick={addScene}
+                title="Add a new scene (new page)"
+              >
+                <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="10" cy="10" r="8" />
+                  <line x1="10" y1="6" x2="10" y2="14" />
+                  <line x1="6" y1="10" x2="14" y2="10" />
+                </svg>
+                Add Scene
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="flex-1 flex flex-col overflow-auto">
+          <ShotlistTab />
+        </div>
+      )}
 
       {/* Settings Panel */}
       <SettingsPanel />
