@@ -427,7 +427,15 @@ const useStore = create((set, get) => ({
       theme: theme || 'light',
       autoSave: autoSave !== undefined ? autoSave : true,
       useDropdowns: useDropdowns !== undefined ? useDropdowns : true,
-      shotlistColumnConfig: data.shotlistColumnConfig || DEFAULT_COLUMN_CONFIG,
+      shotlistColumnConfig: (() => {
+        const saved = data.shotlistColumnConfig
+        if (!saved || !Array.isArray(saved) || saved.length === 0) return DEFAULT_COLUMN_CONFIG
+        // Preserve saved order/visibility; append any columns added since the
+        // project was last saved so they're not silently missing.
+        const savedKeys = new Set(saved.map(c => c.key))
+        const newCols = DEFAULT_COLUMN_CONFIG.filter(c => !savedKeys.has(c.key))
+        return newCols.length ? [...saved, ...newCols] : saved
+      })(),
       scenes,
       lastSaved: new Date().toISOString(),
     })
