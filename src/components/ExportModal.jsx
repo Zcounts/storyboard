@@ -129,28 +129,68 @@ async function captureElement(el, scale = 1.5) {
   }
 }
 
-export async function exportToPDF(pageRefs) {
-  const pages = (pageRefs?.current || []).filter(Boolean)
-  if (pages.length === 0) return
+/** Wait for two animation frames so layout settles after DOM changes */
+function waitFrames(n = 2) {
+  return new Promise(resolve => {
+    let count = 0
+    const raf = () => {
+      if (++count >= n) resolve()
+      else requestAnimationFrame(raf)
+    }
+    requestAnimationFrame(raf)
+  })
+}
+
+/** Wrap a promise with a timeout (ms). Rejects with a timeout error if exceeded. */
+function withTimeout(promise, ms, label = 'Operation') {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms / 1000}s`)), ms)
+    ),
+  ])
+}
+
+export async function exportToPDF(pageRefs, storyboardRef) {
+  // Temporarily reveal the storyboard container if it is hidden (display:none)
+  // so that html2canvas can render the attached DOM elements.
+  const container = storyboardRef?.current
+  const wasHidden = container && getComputedStyle(container).display === 'none'
+  if (wasHidden) {
+    console.log('[Export] Storyboard container is hidden — temporarily revealing for capture')
+    container.style.display = ''
+    await waitFrames(2)
+  }
+
+  const pages = (pageRefs?.current || []).filter(el => el && el.isConnected)
+  console.log(`[Export] Found ${pages.length} connected page(s) to export`)
+
+  if (pages.length === 0) {
+    if (wasHidden && container) container.style.display = 'none'
+    return
+  }
 
   try {
     let pdf = null
     let scale = 1.5
 
     for (let i = 0; i < pages.length; i++) {
+      const el = pages[i]
+      console.log(`[Export] Capturing page ${i + 1}/${pages.length} — size: ${el.offsetWidth}×${el.offsetHeight}px, scale: ${scale}`)
+
       let canvas
       try {
-        canvas = await captureElement(pages[i], scale)
+        canvas = await withTimeout(captureElement(el, scale), 60000, `Page ${i + 1} capture`)
       } catch (scaleErr) {
-        // Retry at lower scale if the first attempt fails
-        console.warn('Export at scale', scale, 'failed, retrying at 1.0:', scaleErr)
+        console.warn(`[Export] Page ${i + 1} at scale ${scale} failed:`, scaleErr.message, '— retrying at 1.0')
         scale = 1.0
-        canvas = await captureElement(pages[i], scale)
+        canvas = await withTimeout(captureElement(el, scale), 60000, `Page ${i + 1} capture (retry)`)
       }
 
       const imgData = canvas.toDataURL('image/jpeg', 0.88)
       const pxW = canvas.width / scale
       const pxH = canvas.height / scale
+      console.log(`[Export] Page ${i + 1} captured — canvas: ${canvas.width}×${canvas.height}, JPEG size: ~${Math.round(imgData.length * 0.75 / 1024)}KB`)
 
       if (i === 0) {
         pdf = new jsPDF({
@@ -174,13 +214,14 @@ export async function exportToPDF(pageRefs) {
     } else {
       pdf.save('shotlist.pdf')
     }
+    console.log('[Export] PDF export complete')
   } catch (err) {
-    console.error('PDF export failed:', err)
+    console.error('[Export] PDF export failed:', err)
     let msg = 'PDF export failed.'
     const errMsg = err?.message || ''
     if (/memory|call stack|out of|heap/i.test(errMsg)) {
       msg += ' Not enough memory — try removing or resizing large shot images.'
-    } else if (/timeout/i.test(errMsg)) {
+    } else if (/timed out/i.test(errMsg)) {
       msg += ' Export timed out — try exporting fewer scenes at once.'
     } else if (/canvas/i.test(errMsg)) {
       msg += ' The page is too large to render. Try reducing image sizes.'
@@ -190,17 +231,39 @@ export async function exportToPDF(pageRefs) {
       msg += ' Try removing or resizing large images attached to shots.'
     }
     alert(msg)
+  } finally {
+    if (wasHidden && container) {
+      container.style.display = 'none'
+      console.log('[Export] Storyboard container re-hidden')
+    }
   }
 }
 
-export async function exportToPNG(pageRefs) {
-  const pages = (pageRefs?.current || []).filter(Boolean)
-  if (pages.length === 0) return
+export async function exportToPNG(pageRefs, storyboardRef) {
+  // Temporarily reveal the storyboard container if hidden
+  const container = storyboardRef?.current
+  const wasHidden = container && getComputedStyle(container).display === 'none'
+  if (wasHidden) {
+    console.log('[Export] Storyboard container is hidden — temporarily revealing for PNG capture')
+    container.style.display = ''
+    await waitFrames(2)
+  }
+
+  const pages = (pageRefs?.current || []).filter(el => el && el.isConnected)
+  console.log(`[Export] Found ${pages.length} connected page(s) to export as PNG`)
+
+  if (pages.length === 0) {
+    if (wasHidden && container) container.style.display = 'none'
+    return
+  }
 
   try {
     for (let i = 0; i < pages.length; i++) {
-      const canvas = await captureElement(pages[i], 2)
+      const el = pages[i]
+      console.log(`[Export] Capturing PNG page ${i + 1}/${pages.length} — size: ${el.offsetWidth}×${el.offsetHeight}px`)
+      const canvas = await withTimeout(captureElement(el, 2), 60000, `PNG page ${i + 1} capture`)
       const filename = pages.length === 1 ? 'shotlist.png' : `shotlist_page${i + 1}.png`
+      console.log(`[Export] PNG page ${i + 1} captured — canvas: ${canvas.width}×${canvas.height}`)
 
       if (window.electronAPI) {
         const dataURL = canvas.toDataURL('image/png')
@@ -215,22 +278,30 @@ export async function exportToPNG(pageRefs) {
         document.body.removeChild(link)
       }
     }
+    console.log('[Export] PNG export complete')
   } catch (err) {
-    console.error('PNG export failed:', err)
+    console.error('[Export] PNG export failed:', err)
     let msg = 'PNG export failed.'
     const errMsg = err?.message || ''
     if (/memory|call stack|out of|heap/i.test(errMsg)) {
       msg += ' Not enough memory — try removing or resizing large shot images.'
+    } else if (/timed out/i.test(errMsg)) {
+      msg += ' Export timed out — try exporting fewer scenes at once.'
     } else if (errMsg) {
       msg += ` Details: ${errMsg}`
     } else {
       msg += ' Try removing or resizing large images attached to shots.'
     }
     alert(msg)
+  } finally {
+    if (wasHidden && container) {
+      container.style.display = 'none'
+      console.log('[Export] Storyboard container re-hidden')
+    }
   }
 }
 
-export default function ExportModal({ isOpen, onClose, pageRefs }) {
+export default function ExportModal({ isOpen, onClose, pageRefs, storyboardRef }) {
   const [exporting, setExporting] = useState(false)
   const [exportType, setExportType] = useState(null)
 
@@ -241,9 +312,9 @@ export default function ExportModal({ isOpen, onClose, pageRefs }) {
     setExportType(type)
     try {
       if (type === 'pdf') {
-        await exportToPDF(pageRefs)
+        await exportToPDF(pageRefs, storyboardRef)
       } else {
-        await exportToPNG(pageRefs)
+        await exportToPNG(pageRefs, storyboardRef)
       }
     } finally {
       setExporting(false)

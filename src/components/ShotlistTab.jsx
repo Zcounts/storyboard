@@ -85,7 +85,13 @@ function EditableCell({ value, onChange, type, options, customOptions, onAddCust
   const datalistId = useId()
 
   useEffect(() => { if (!editing) setDraft(value ?? '') }, [value, editing])
-  useEffect(() => { if (editing && inputRef.current) inputRef.current.focus() }, [editing])
+
+  // Use a ref callback so focus happens synchronously during React's commit phase —
+  // BEFORE the browser paints — eliminating the "blue background, no cursor" flash.
+  const setFocusRef = useCallback((el) => {
+    inputRef.current = el
+    if (el) el.focus()
+  }, [])
 
   const commit = useCallback(() => {
     setEditing(false)
@@ -165,7 +171,7 @@ function EditableCell({ value, onChange, type, options, customOptions, onAddCust
       return (
         <>
           <input
-            ref={inputRef}
+            ref={setFocusRef}
             type="text"
             value={draft}
             list={datalistId}
@@ -194,7 +200,7 @@ function EditableCell({ value, onChange, type, options, customOptions, onAddCust
     if (type === 'textarea') {
       return (
         <textarea
-          ref={inputRef}
+          ref={setFocusRef}
           value={draft}
           onChange={e => setDraft(e.target.value)}
           onBlur={commit}
@@ -215,7 +221,7 @@ function EditableCell({ value, onChange, type, options, customOptions, onAddCust
 
     return (
       <input
-        ref={inputRef}
+        ref={setFocusRef}
         value={draft}
         onChange={e => setDraft(e.target.value)}
         onBlur={commit}
@@ -744,12 +750,15 @@ function SortableShotRow({
           height: ROW_H,
           padding: '0 3px',
         }}>
-          {/* Drag grip */}
+          {/* Drag grip — tabIndex={-1} overrides dnd-kit's tabIndex:0 so the
+               handle cannot steal focus when a cell is clicked nearby.       */}
           <div
             {...attributes}
             {...listeners}
+            tabIndex={-1}
             style={{
               cursor: isDragging ? 'grabbing' : 'grab',
+              outline: 'none',
               width: 16,
               height: '100%',
               display: 'flex',
@@ -971,16 +980,12 @@ export default function ShotlistTab() {
     reorderShots(sceneId, active.id, over.id)
   }, [reorderShots])
 
+  // Match the storyboard's behaviour exactly: call addScene() directly.
+  // The new scene immediately appears in both tabs; the user can rename it
+  // by clicking on the scene label in the Storyboard header.
   const handleAddScene = useCallback(() => {
-    const sceneLabel = window.prompt('Scene name:', `SCENE ${scenes.length + 1}`)
-    if (sceneLabel === null) return
-    const rawIntExt = window.prompt('Interior or Exterior? (INT / EXT / INT/EXT):', 'INT')
-    if (rawIntExt === null) return
-    const intOrExt = ['INT', 'EXT', 'INT/EXT'].includes(rawIntExt.toUpperCase().trim())
-      ? rawIntExt.toUpperCase().trim()
-      : 'INT'
-    addScene({ sceneLabel: sceneLabel.toUpperCase().trim(), intOrExt })
-  }, [scenes.length, addScene])
+    addScene()
+  }, [addScene])
 
   // Close config panel when clicking outside
   useEffect(() => {

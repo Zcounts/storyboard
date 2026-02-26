@@ -138,8 +138,12 @@ export default function App() {
   const setActiveTab = useStore(s => s.setActiveTab)
 
   const [exportModalOpen, setExportModalOpen] = useState(false)
+  // Non-blocking autosave restore banner — replaces confirm() which steals focus
+  const [restoreData, setRestoreData] = useState(null)
   // pageRefs is a flat array of all page-document elements in render order
   const pageRefs = useRef([])
+  // storyboardRef points to the storyboard scroll container (always in DOM)
+  const storyboardRef = useRef(null)
 
   // Reset refs array size on render so stale refs don't linger
   const totalPages = scenes.reduce((acc, scene) => {
@@ -159,7 +163,10 @@ export default function App() {
     return () => clearInterval(interval)
   }, [autoSave, getProjectData])
 
-  // Restore from autosave on first load if no shots
+  // Restore from autosave on first load if no shots.
+  // Uses a non-blocking banner instead of confirm() — confirm() is a native dialog
+  // that steals Electron window focus, making inputs non-editable until the user
+  // clicks somewhere after dismissal.
   useEffect(() => {
     const hasShots = useStore.getState().scenes.some(s => s.shots.length > 0)
     if (!hasShots) {
@@ -171,10 +178,7 @@ export default function App() {
             .reduce((a, s) => a + (s.shots || []).length, 0)
           if (totalShots > 0) {
             const savedTime = localStorage.getItem('autosave_time')
-            const timeStr = savedTime ? new Date(savedTime).toLocaleString() : 'recently'
-            if (confirm(`Restore auto-saved project from ${timeStr}? (${totalShots} shots)`)) {
-              useStore.getState().loadProject(data)
-            }
+            setRestoreData({ data, totalShots, savedTime })
           }
         } catch {
           // ignore
@@ -245,51 +249,110 @@ export default function App() {
         ))}
       </div>
 
-      {/* Main content */}
-      {activeTab === 'storyboard' ? (
-        <div className="flex-1 py-6 px-4 overflow-x-auto">
-          <div className="pages-container">
-            {scenes.map((scene, sceneIdx) => (
-              <React.Fragment key={scene.id}>
-                {/* Scene separator (between scenes) */}
-                {sceneIdx > 0 && (
-                  <div className="scene-separator">
-                    <span className="scene-separator-label">NEW SCENE</span>
-                  </div>
-                )}
-
-                <SceneSection
-                  scene={scene}
-                  columnCount={columnCount}
-                  useDropdowns={useDropdowns}
-                  pageIndexOffset={scenePageOffsets[sceneIdx]}
-                  pageRefs={pageRefs}
-                />
-              </React.Fragment>
-            ))}
-
-            {/* Add Scene button */}
-            <div className="add-scene-row">
-              <button
-                className="add-scene-btn"
-                onClick={addScene}
-                title="Add a new scene (new page)"
-              >
-                <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="10" cy="10" r="8" />
-                  <line x1="10" y1="6" x2="10" y2="14" />
-                  <line x1="6" y1="10" x2="14" y2="10" />
-                </svg>
-                Add Scene
-              </button>
-            </div>
+      {/* Autosave restore banner — non-blocking, doesn't steal focus */}
+      {restoreData && (
+        <div style={{
+          background: '#2a2a2a',
+          color: '#fff',
+          padding: '7px 16px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          fontSize: 12,
+          fontFamily: 'monospace',
+          flexShrink: 0,
+          zIndex: 50,
+          borderBottom: '1px solid #444',
+        }}>
+          <span style={{ opacity: 0.85 }}>
+            Auto-saved project found ({restoreData.totalShots} shot{restoreData.totalShots !== 1 ? 's' : ''}
+            {restoreData.savedTime ? `, saved ${new Date(restoreData.savedTime).toLocaleString()}` : ''})
+          </span>
+          <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+            <button
+              onClick={() => {
+                useStore.getState().loadProject(restoreData.data)
+                setRestoreData(null)
+              }}
+              style={{
+                background: '#4ade80', color: '#000', border: 'none',
+                borderRadius: 4, padding: '3px 14px', cursor: 'pointer',
+                fontSize: 11, fontWeight: 700, fontFamily: 'monospace',
+              }}
+            >
+              Restore
+            </button>
+            <button
+              onClick={() => setRestoreData(null)}
+              style={{
+                background: 'rgba(255,255,255,0.1)', color: '#ccc', border: 'none',
+                borderRadius: 4, padding: '3px 12px', cursor: 'pointer',
+                fontSize: 11, fontFamily: 'monospace',
+              }}
+            >
+              Dismiss
+            </button>
           </div>
         </div>
-      ) : (
-        <div className="flex-1 flex flex-col overflow-auto">
-          <ShotlistTab />
-        </div>
       )}
+
+      {/* ── Main content ────────────────────────────────────────────────────────
+          Both tabs are always mounted (display:none hides the inactive one).
+          This keeps pageRefs valid for PDF export regardless of active tab,
+          and avoids re-mounting components on every tab switch.             */}
+
+      {/* Storyboard tab */}
+      <div
+        ref={storyboardRef}
+        className="flex-1 py-6 px-4 overflow-x-auto"
+        style={{ display: activeTab === 'storyboard' ? undefined : 'none' }}
+      >
+        <div className="pages-container">
+          {scenes.map((scene, sceneIdx) => (
+            <React.Fragment key={scene.id}>
+              {/* Scene separator (between scenes) */}
+              {sceneIdx > 0 && (
+                <div className="scene-separator">
+                  <span className="scene-separator-label">NEW SCENE</span>
+                </div>
+              )}
+
+              <SceneSection
+                scene={scene}
+                columnCount={columnCount}
+                useDropdowns={useDropdowns}
+                pageIndexOffset={scenePageOffsets[sceneIdx]}
+                pageRefs={pageRefs}
+              />
+            </React.Fragment>
+          ))}
+
+          {/* Add Scene button */}
+          <div className="add-scene-row">
+            <button
+              className="add-scene-btn"
+              onClick={addScene}
+              title="Add a new scene (new page)"
+            >
+              <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="10" cy="10" r="8" />
+                <line x1="10" y1="6" x2="10" y2="14" />
+                <line x1="6" y1="10" x2="14" y2="10" />
+              </svg>
+              Add Scene
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Shotlist tab */}
+      <div
+        className="flex-1 flex flex-col overflow-auto"
+        style={{ display: activeTab === 'shotlist' ? undefined : 'none' }}
+      >
+        <ShotlistTab />
+      </div>
 
       {/* Settings Panel */}
       <SettingsPanel />
@@ -302,6 +365,7 @@ export default function App() {
         isOpen={exportModalOpen}
         onClose={() => setExportModalOpen(false)}
         pageRefs={pageRefs}
+        storyboardRef={storyboardRef}
       />
     </div>
   )
