@@ -83,15 +83,3 @@ Each shot card must contain exactly these elements, stacked vertically:
 - Images stored as base64 strings inside the JSON project file
 - Warning displayed if total project file size exceeds 50MB
 
-## Visual Style
-
-Cream/off-white background, clean sans-serif font, bold column headers in the specs table, colored left/top border accents on each card matching the indicator color, professional print-document aesthetic.
-
-## Build Sessions
-
-- Session 1: Scaffold ✅
-- Session 2: ShotCard component
-- Session 3: Page layout and grid
-- Session 4: State and interactions
-- Session 5: Save/load and settings
-- Session 6: Export and final polish
