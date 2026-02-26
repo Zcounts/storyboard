@@ -12,6 +12,24 @@ export const CARD_COLORS = [
   '#f472b6', // pink
 ]
 
+export const DEFAULT_COLUMN_CONFIG = [
+  { key: 'checked',        visible: true },
+  { key: 'displayId',      visible: true },
+  { key: '__intExt__',     visible: true },
+  { key: 'subject',        visible: true },
+  { key: 'specs.type',     visible: true },
+  { key: 'focalLength',    visible: true },
+  { key: 'specs.equip',    visible: true },
+  { key: 'specs.move',     visible: true },
+  { key: 'specs.size',     visible: true },
+  { key: 'notes',          visible: true },
+  { key: 'scriptTime',     visible: true },
+  { key: 'setupTime',      visible: true },
+  { key: 'predictedTakes', visible: true },
+  { key: 'shootTime',      visible: true },
+  { key: 'takeNumber',     visible: true },
+]
+
 const DEFAULT_COLOR = '#4ade80'
 
 let shotCounter = 0
@@ -103,6 +121,7 @@ const useStore = create((set, get) => ({
   settingsOpen: false,
   contextMenu: null, // { shotId, sceneId, x, y }
   activeTab: 'storyboard', // 'storyboard' | 'shotlist'
+  shotlistColumnConfig: DEFAULT_COLUMN_CONFIG,
 
   // ── Scene helpers ────────────────────────────────────────────────────
 
@@ -280,6 +299,10 @@ const useStore = create((set, get) => ({
   toggleSettings: () => set(state => ({ settingsOpen: !state.settingsOpen })),
   closeSettings: () => set({ settingsOpen: false }),
   setActiveTab: (tab) => set({ activeTab: tab }),
+  setShotlistColumnConfig: (config) => {
+    set({ shotlistColumnConfig: config })
+    get()._scheduleAutoSave()
+  },
 
   showContextMenu: (shotId, sceneId, x, y) => set({ contextMenu: { shotId, sceneId, x, y } }),
   hideContextMenu: () => set({ contextMenu: null }),
@@ -289,7 +312,7 @@ const useStore = create((set, get) => ({
   getProjectData: () => {
     const {
       projectName, columnCount, defaultFocalLength,
-      theme, autoSave, useDropdowns, scenes,
+      theme, autoSave, useDropdowns, scenes, shotlistColumnConfig,
     } = get()
     return {
       version: 2,
@@ -299,6 +322,7 @@ const useStore = create((set, get) => ({
       theme,
       autoSave,
       useDropdowns,
+      shotlistColumnConfig,
       scenes: scenes.map(scene => ({
         ...scene,
         shots: scene.shots.map(s => ({ ...s })),
@@ -403,6 +427,7 @@ const useStore = create((set, get) => ({
       theme: theme || 'light',
       autoSave: autoSave !== undefined ? autoSave : true,
       useDropdowns: useDropdowns !== undefined ? useDropdowns : true,
+      shotlistColumnConfig: data.shotlistColumnConfig || DEFAULT_COLUMN_CONFIG,
       scenes,
       lastSaved: new Date().toISOString(),
     })
