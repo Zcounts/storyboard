@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useId } from 'react'
 import useStore from '../store'
 
 const SIZE_OPTIONS = ['WIDE SHOT', 'MEDIUM', 'CLOSE UP', 'OTS', 'ECU', 'INSERT', 'ESTABLISHING']
@@ -15,21 +15,37 @@ const SPEC_OPTIONS = {
 
 function SpecCell({ shotId, specKey, value, useDropdowns }) {
   const updateShotSpec = useStore(s => s.updateShotSpec)
+  const customDropdownOptions = useStore(s => s.customDropdownOptions)
+  const addCustomDropdownOption = useStore(s => s.addCustomDropdownOption)
+  const listId = useId()
 
   if (useDropdowns) {
-    const options = SPEC_OPTIONS[specKey]
-    const isCustom = !options.includes(value)
+    const defaultOpts = SPEC_OPTIONS[specKey] || []
+    const customOpts = customDropdownOptions[specKey] || []
+    const allOpts = [...new Set([...defaultOpts, ...customOpts])]
+
     return (
-      <select
-        value={value}
-        onChange={e => updateShotSpec(shotId, specKey, e.target.value)}
-        title={value}
-      >
-        {isCustom && <option key="__custom__" value={value}>{value}</option>}
-        {options.map(opt => (
-          <option key={opt} value={opt}>{opt}</option>
-        ))}
-      </select>
+      <>
+        <input
+          type="text"
+          value={value}
+          list={listId}
+          onChange={e => updateShotSpec(shotId, specKey, e.target.value)}
+          onBlur={e => {
+            const val = e.target.value.trim()
+            if (val && !allOpts.includes(val)) {
+              addCustomDropdownOption(specKey, val)
+            }
+          }}
+          title={value}
+          autoComplete="off"
+        />
+        <datalist id={listId}>
+          {allOpts.map(opt => (
+            <option key={opt} value={opt} />
+          ))}
+        </datalist>
+      </>
     )
   }
 

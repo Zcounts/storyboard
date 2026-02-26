@@ -64,8 +64,57 @@ function prepareForCapture(el) {
   }
 }
 
-async function captureElement(el, scale = 2) {
+/**
+ * Compress a base64 image data URL to a smaller JPEG.
+ * Caps the longest dimension at maxDim pixels.
+ */
+async function compressBase64Image(dataUrl, quality = 0.7, maxDim = 1400) {
+  return new Promise(resolve => {
+    const img = new Image()
+    img.onload = () => {
+      let w = img.naturalWidth
+      let h = img.naturalHeight
+      if (w > maxDim || h > maxDim) {
+        const ratio = Math.min(maxDim / w, maxDim / h)
+        w = Math.round(w * ratio)
+        h = Math.round(h * ratio)
+      }
+      const canvas = document.createElement('canvas')
+      canvas.width = w
+      canvas.height = h
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(img, 0, 0, w, h)
+      resolve(canvas.toDataURL('image/jpeg', quality))
+    }
+    img.onerror = () => resolve(dataUrl) // fall back to original
+    img.src = dataUrl
+  })
+}
+
+/**
+ * Temporarily replace large embedded images with compressed versions
+ * to reduce canvas memory usage during capture. Returns a restore fn.
+ */
+async function compressLargeImages(el, sizeThresholdBytes = 800 * 1024) {
+  const imgs = el.querySelectorAll('img[src^="data:image"]')
+  const restores = []
+  for (const img of imgs) {
+    const src = img.src
+    // base64 length ≈ 4/3 × actual bytes
+    if (src.length > sizeThresholdBytes * 1.33) {
+      const compressed = await compressBase64Image(src, 0.65)
+      img.src = compressed
+      restores.push({ img, src })
+    }
+  }
+  return function restore() {
+    restores.forEach(({ img, src }) => { img.src = src })
+  }
+}
+
+async function captureElement(el, scale = 1.5) {
   const restore = prepareForCapture(el)
+  const restoreImages = await compressLargeImages(el)
   try {
     return await html2canvas(el, {
       scale,
@@ -75,6 +124,7 @@ async function captureElement(el, scale = 2) {
       logging: false,
     })
   } finally {
+    restoreImages()
     restore()
   }
 }
@@ -85,12 +135,22 @@ export async function exportToPDF(pageRefs) {
 
   try {
     let pdf = null
+    let scale = 1.5
 
     for (let i = 0; i < pages.length; i++) {
-      const canvas = await captureElement(pages[i], 2)
-      const imgData = canvas.toDataURL('image/jpeg', 0.95)
-      const pxW = canvas.width / 2
-      const pxH = canvas.height / 2
+      let canvas
+      try {
+        canvas = await captureElement(pages[i], scale)
+      } catch (scaleErr) {
+        // Retry at lower scale if the first attempt fails
+        console.warn('Export at scale', scale, 'failed, retrying at 1.0:', scaleErr)
+        scale = 1.0
+        canvas = await captureElement(pages[i], scale)
+      }
+
+      const imgData = canvas.toDataURL('image/jpeg', 0.88)
+      const pxW = canvas.width / scale
+      const pxH = canvas.height / scale
 
       if (i === 0) {
         pdf = new jsPDF({
@@ -116,7 +176,20 @@ export async function exportToPDF(pageRefs) {
     }
   } catch (err) {
     console.error('PDF export failed:', err)
-    alert('PDF export failed. Try reducing image sizes.')
+    let msg = 'PDF export failed.'
+    const errMsg = err?.message || ''
+    if (/memory|call stack|out of|heap/i.test(errMsg)) {
+      msg += ' Not enough memory — try removing or resizing large shot images.'
+    } else if (/timeout/i.test(errMsg)) {
+      msg += ' Export timed out — try exporting fewer scenes at once.'
+    } else if (/canvas/i.test(errMsg)) {
+      msg += ' The page is too large to render. Try reducing image sizes.'
+    } else if (errMsg) {
+      msg += ` Details: ${errMsg}`
+    } else {
+      msg += ' Try removing or resizing large images attached to shots.'
+    }
+    alert(msg)
   }
 }
 
@@ -126,7 +199,7 @@ export async function exportToPNG(pageRefs) {
 
   try {
     for (let i = 0; i < pages.length; i++) {
-      const canvas = await captureElement(pages[i], 3)
+      const canvas = await captureElement(pages[i], 2)
       const filename = pages.length === 1 ? 'shotlist.png' : `shotlist_page${i + 1}.png`
 
       if (window.electronAPI) {
@@ -144,7 +217,16 @@ export async function exportToPNG(pageRefs) {
     }
   } catch (err) {
     console.error('PNG export failed:', err)
-    alert('PNG export failed. Try reducing image sizes.')
+    let msg = 'PNG export failed.'
+    const errMsg = err?.message || ''
+    if (/memory|call stack|out of|heap/i.test(errMsg)) {
+      msg += ' Not enough memory — try removing or resizing large shot images.'
+    } else if (errMsg) {
+      msg += ` Details: ${errMsg}`
+    } else {
+      msg += ' Try removing or resizing large images attached to shots.'
+    }
+    alert(msg)
   }
 }
 

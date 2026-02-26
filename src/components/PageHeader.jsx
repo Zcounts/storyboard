@@ -11,6 +11,11 @@ export default function PageHeader({ scene, isContinuation = false, pageNum = 1 
     set({ intOrExt: next[scene.intOrExt] || 'INT' })
   }
 
+  const cycleDayNight = () => {
+    const next = { DAY: 'NIGHT', NIGHT: 'DAY/NIGHT', 'DAY/NIGHT': 'DAY' }
+    set({ dayNight: next[scene.dayNight] || 'DAY' })
+  }
+
   const cameras = scene.cameras || [{ name: scene.cameraName || 'Camera 1', body: scene.cameraBody || 'fx30' }]
 
   const updateCamera = (idx, field, value) => {
@@ -62,6 +67,13 @@ export default function PageHeader({ scene, isContinuation = false, pageNum = 1 
             className="text-xl font-black bg-transparent border-none outline-none cursor-pointer hover:opacity-70 p-0"
           >
             {scene.intOrExt}
+          </button>
+          <span className="text-xl font-black">·</span>
+          <button
+            onClick={cycleDayNight}
+            className="text-xl font-black bg-transparent border-none outline-none cursor-pointer hover:opacity-70 p-0"
+          >
+            {scene.dayNight || 'DAY'}
           </button>
         </div>
         {isContinuation && (
