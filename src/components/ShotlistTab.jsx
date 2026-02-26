@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react'
+import React, { useState, useCallback, useRef, useEffect, useId, useMemo } from 'react'
 import {
   DndContext,
   closestCenter,
@@ -16,23 +16,25 @@ import { CSS } from '@dnd-kit/utilities'
 import useStore from '../store'
 
 // ── Dropdown options (matching SpecsTable.jsx) ───────────────────────────────
-const SIZE_OPTIONS = ['WIDE SHOT', 'MEDIUM', 'CLOSE UP', 'OTS', 'ECU', 'INSERT', 'ESTABLISHING']
-const TYPE_OPTIONS = ['EYE LVL', 'SHOULDER LVL', 'CROWD LVL', 'HIGH ANGLE', 'LOW ANGLE', 'DUTCH']
-const MOVE_OPTIONS = ['STATIC', 'PUSH', 'PULL', 'PAN', 'TILT', 'STATIC or PUSH', 'TRACKING', 'CRANE']
+const SIZE_OPTIONS  = ['WIDE SHOT', 'MEDIUM', 'CLOSE UP', 'OTS', 'ECU', 'INSERT', 'ESTABLISHING']
+const TYPE_OPTIONS  = ['EYE LVL', 'SHOULDER LVL', 'CROWD LVL', 'HIGH ANGLE', 'LOW ANGLE', 'DUTCH']
+const MOVE_OPTIONS  = ['STATIC', 'PUSH', 'PULL', 'PAN', 'TILT', 'STATIC or PUSH', 'TRACKING', 'CRANE']
 const EQUIP_OPTIONS = ['STICKS', 'GIMBAL', 'HANDHELD', 'STICKS or GIMBAL', 'CRANE', 'DOLLY', 'STEADICAM']
-const INT_EXT_OPTIONS = ['INT', 'EXT', 'INT/EXT']
+const INT_EXT_OPTIONS  = ['INT', 'EXT', 'INT/EXT']
+const DAY_NIGHT_OPTIONS = ['DAY', 'NIGHT', 'DAY/NIGHT']
 
-// ── All column definitions (source of truth for metadata) ────────────────────
-const ALL_COLUMNS = [
+// ── Built-in column definitions (source of truth for metadata) ──────────────
+const BUILTIN_COLUMNS = [
   { key: 'checked',        label: 'X',                  width: 36,  type: 'checkbox' },
   { key: 'displayId',      label: 'SHOT#',              width: 54,  type: 'readonly' },
-  { key: '__intExt__',     label: 'I/E D/N',            width: 76,  type: 'intExt' },
+  { key: '__int__',        label: 'I/E',                width: 52,  type: 'intExt' },
+  { key: '__dn__',         label: 'D/N',                width: 52,  type: 'dayNight' },
   { key: 'subject',        label: 'SUBJECT',            width: 130, type: 'text' },
-  { key: 'specs.type',     label: 'ANGLE',              width: 96,  type: 'dropdown', options: TYPE_OPTIONS },
+  { key: 'specs.type',     label: 'ANGLE',              width: 96,  type: 'dropdown', options: TYPE_OPTIONS,  customOptionsField: 'type'  },
   { key: 'focalLength',    label: 'LENS',               width: 64,  type: 'text' },
-  { key: 'specs.equip',    label: 'EQUIPMENT',          width: 100, type: 'dropdown', options: EQUIP_OPTIONS },
-  { key: 'specs.move',     label: 'MOVEMENT',           width: 96,  type: 'dropdown', options: MOVE_OPTIONS },
-  { key: 'specs.size',     label: 'COVERAGE',           width: 110, type: 'dropdown', options: SIZE_OPTIONS },
+  { key: 'specs.equip',    label: 'EQUIPMENT',          width: 100, type: 'dropdown', options: EQUIP_OPTIONS, customOptionsField: 'equip' },
+  { key: 'specs.move',     label: 'MOVEMENT',           width: 96,  type: 'dropdown', options: MOVE_OPTIONS,  customOptionsField: 'move'  },
+  { key: 'specs.size',     label: 'COVERAGE',           width: 110, type: 'dropdown', options: SIZE_OPTIONS,  customOptionsField: 'size'  },
   { key: 'notes',          label: 'NOTES',              width: 160, type: 'textarea' },
   { key: 'scriptTime',     label: 'SCRIPT TIME',        width: 84,  type: 'text' },
   { key: 'setupTime',      label: 'SETUP TIME',         width: 84,  type: 'text' },
@@ -74,10 +76,13 @@ function sumScriptTimes(shots) {
 }
 
 // ── EditableCell ──────────────────────────────────────────────────────────────
-function EditableCell({ value, onChange, type, options, isChecked, isDark }) {
+// customOptions: extra options to merge with the built-in options list
+// onAddCustomOption: callback(value) called when user commits a value not in options
+function EditableCell({ value, onChange, type, options, customOptions, onAddCustomOption, isChecked, isDark }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value ?? '')
   const inputRef = useRef(null)
+  const datalistId = useId()
 
   useEffect(() => { if (!editing) setDraft(value ?? '') }, [value, editing])
   useEffect(() => { if (editing && inputRef.current) inputRef.current.focus() }, [editing])
@@ -154,27 +159,35 @@ function EditableCell({ value, onChange, type, options, isChecked, isDark }) {
   }
 
   if (editing) {
+    // ── Dropdown via datalist — allows free-text custom values ──
     if (type === 'dropdown') {
-      // Commit immediately on selection to avoid the stale-closure bug where
-      // onBlur fires in the same event flush as onChange, before draft state
-      // has been committed to a new render cycle.
-      const isCustom = options && !options.includes(value)
+      const allOpts = [...new Set([...(options || []), ...(customOptions || [])])]
       return (
-        <select
-          ref={inputRef}
-          value={draft}
-          onChange={e => {
-            const newVal = e.target.value
-            setDraft(newVal)
-            setEditing(false)
-            if (newVal !== (value ?? '')) onChange(newVal)
-          }}
-          onBlur={() => setEditing(false)}
-          style={{ ...editStyle, padding: '0 4px', cursor: 'pointer' }}
-        >
-          {isCustom && <option value={value ?? ''}>{value}</option>}
-          {(options || []).map(o => <option key={o} value={o}>{o}</option>)}
-        </select>
+        <>
+          <input
+            ref={inputRef}
+            type="text"
+            value={draft}
+            list={datalistId}
+            onChange={e => setDraft(e.target.value)}
+            onBlur={() => {
+              const trimmed = draft.trim()
+              if (trimmed && !allOpts.includes(trimmed) && onAddCustomOption) {
+                onAddCustomOption(trimmed)
+              }
+              commit()
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.target.blur()
+              if (e.key === 'Escape') { setDraft(value ?? ''); setEditing(false) }
+            }}
+            style={{ ...editStyle, padding: '0 4px' }}
+            autoComplete="off"
+          />
+          <datalist id={datalistId}>
+            {allOpts.map(o => <option key={o} value={o} />)}
+          </datalist>
+        </>
       )
     }
 
@@ -186,7 +199,6 @@ function EditableCell({ value, onChange, type, options, isChecked, isDark }) {
           onChange={e => setDraft(e.target.value)}
           onBlur={commit}
           onKeyDown={(e) => {
-            // Escape cancels; Enter is allowed for newlines in textarea
             if (e.key === 'Escape') { setDraft(value ?? ''); setEditing(false) }
           }}
           style={{
@@ -214,21 +226,25 @@ function EditableCell({ value, onChange, type, options, isChecked, isDark }) {
   }
 
   // ── Display mode ──
+  // onMouseDown preventDefault prevents browser text-selection highlight;
+  // onClick still fires and enters edit mode immediately.
   return (
     <div
+      onMouseDown={e => e.preventDefault()}
       onClick={() => setEditing(true)}
       style={{
         padding: '0 6px',
         display: 'flex',
         alignItems: 'center',
         height: '100%',
-        cursor: 'text',
+        cursor: type === 'textarea' ? 'text' : 'default',
         fontSize: 11,
         color: value ? (isDark ? '#e0e0e0' : '#1a1a1a') : (isDark ? '#3a3a3a' : '#ccc'),
         overflow: 'hidden',
         textOverflow: 'ellipsis',
         whiteSpace: 'nowrap',
         userSelect: 'none',
+        outline: 'none',
       }}
     >
       {value || '—'}
@@ -236,58 +252,81 @@ function EditableCell({ value, onChange, type, options, isChecked, isDark }) {
   )
 }
 
-// ── IntExtCell — scene-level I/E D/N ─────────────────────────────────────────
-function IntExtCell({ value, onChange, isDark }) {
+// ── SceneLevelDropdownCell — for scene-wide I/E and D/N ───────────────────────
+// Clicking edits the value for the entire scene (not per-shot).
+function SceneLevelDropdownCell({ value, onChange, options, customOptions, onAddCustomOption, isDark }) {
   const [editing, setEditing] = useState(false)
   const selectRef = useRef(null)
+  const datalistId = useId()
 
   useEffect(() => { if (editing && selectRef.current) selectRef.current.focus() }, [editing])
 
-  const commit = useCallback((newVal) => {
-    setEditing(false)
-    if (newVal !== value) onChange(newVal)
-  }, [value, onChange])
+  const allOpts = [...new Set([...(options || []), ...(customOptions || [])])]
 
   if (editing) {
     return (
-      <select
-        ref={selectRef}
-        value={value}
-        onChange={e => commit(e.target.value)}
-        onBlur={() => setEditing(false)}
-        style={{
-          width: '100%',
-          height: '100%',
-          border: 'none',
-          background: isDark ? '#1e3a5f' : '#eff6ff',
-          color: isDark ? '#e0e0e0' : '#1a1a1a',
-          fontSize: 11,
-          fontFamily: 'monospace',
-          fontWeight: 600,
-          padding: '0 4px',
-          outline: 'none',
-          cursor: 'pointer',
-        }}
-      >
-        {INT_EXT_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
-      </select>
+      <>
+        <input
+          ref={selectRef}
+          type="text"
+          value={value}
+          list={datalistId}
+          onChange={e => {
+            const newVal = e.target.value
+            if (allOpts.includes(newVal)) {
+              setEditing(false)
+              if (newVal !== value) onChange(newVal)
+            }
+          }}
+          onBlur={e => {
+            const v = e.target.value.trim()
+            if (v && !allOpts.includes(v) && onAddCustomOption) {
+              onAddCustomOption(v)
+            }
+            setEditing(false)
+            if (v && v !== value) onChange(v)
+          }}
+          onKeyDown={e => {
+            if (e.key === 'Enter') e.target.blur()
+            if (e.key === 'Escape') setEditing(false)
+          }}
+          style={{
+            width: '100%',
+            height: '100%',
+            border: 'none',
+            background: isDark ? '#1e3a5f' : '#eff6ff',
+            color: isDark ? '#e0e0e0' : '#1a1a1a',
+            fontSize: 11,
+            fontFamily: 'monospace',
+            fontWeight: 600,
+            padding: '0 4px',
+            outline: 'none',
+          }}
+          autoComplete="off"
+        />
+        <datalist id={datalistId}>
+          {allOpts.map(o => <option key={o} value={o} />)}
+        </datalist>
+      </>
     )
   }
 
   return (
     <div
+      onMouseDown={e => e.preventDefault()}
       onClick={() => setEditing(true)}
       style={{
         padding: '0 6px',
         display: 'flex',
         alignItems: 'center',
         height: '100%',
-        cursor: 'pointer',
+        cursor: 'default',
         fontSize: 11,
         fontFamily: 'monospace',
         fontWeight: 600,
         color: isDark ? '#aaa' : '#444',
         userSelect: 'none',
+        outline: 'none',
       }}
     >
       {value || '—'}
@@ -310,7 +349,7 @@ function DragHandleIcon() {
 }
 
 // ── SortableColumnItem (inside the config panel) ──────────────────────────────
-function SortableColumnItem({ id, label, visible, onToggle, isDark }) {
+function SortableColumnItem({ id, label, visible, onToggle, isDark, isCustom, onDelete }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
 
   return (
@@ -371,15 +410,43 @@ function SortableColumnItem({ id, label, visible, onToggle, isDark }) {
       }}>
         {label}
       </span>
+
+      {/* Delete button for custom columns */}
+      {isCustom && onDelete && (
+        <button
+          onPointerDown={e => e.stopPropagation()}
+          onClick={e => { e.stopPropagation(); onDelete(id) }}
+          title="Remove custom column"
+          style={{
+            border: 'none',
+            background: 'none',
+            cursor: 'pointer',
+            color: isDark ? '#f87171' : '#dc2626',
+            fontSize: 14,
+            lineHeight: 1,
+            padding: '0 2px',
+            display: 'flex',
+            alignItems: 'center',
+            flexShrink: 0,
+            opacity: 0.7,
+          }}
+        >
+          ×
+        </button>
+      )}
     </div>
   )
 }
 
 // ── Column config panel ───────────────────────────────────────────────────────
-function ColumnConfigPanel({ config, isDark, onChange, onClose }) {
+function ColumnConfigPanel({ config, isDark, onChange, onClose, customColumns, onAddCustomColumn, onRemoveCustomColumn }) {
   const panelSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } })
   )
+
+  const [newColName, setNewColName] = useState('')
+  const [newColType, setNewColType] = useState('text')
+  const [addingCol, setAddingCol] = useState(false)
 
   const handleDragEnd = useCallback(({ active, over }) => {
     if (!over || active.id === over.id) return
@@ -393,6 +460,26 @@ function ColumnConfigPanel({ config, isDark, onChange, onClose }) {
     onChange(config.map(c => c.key === key ? { ...c, visible: !c.visible } : c))
   }, [config, onChange])
 
+  const getColLabel = useCallback((key) => {
+    const builtin = BUILTIN_COLUMNS.find(col => col.key === key)
+    if (builtin) return builtin.label
+    const custom = customColumns.find(c => c.key === key)
+    return custom ? custom.label : key
+  }, [customColumns])
+
+  const isCustomCol = useCallback((key) => {
+    return customColumns.some(c => c.key === key)
+  }, [customColumns])
+
+  const handleAddColumn = () => {
+    const name = newColName.trim()
+    if (!name) return
+    onAddCustomColumn(name, newColType)
+    setNewColName('')
+    setNewColType('text')
+    setAddingCol(false)
+  }
+
   return (
     <div
       style={{
@@ -400,7 +487,7 @@ function ColumnConfigPanel({ config, isDark, onChange, onClose }) {
         top: 34,
         right: 0,
         zIndex: 200,
-        width: 230,
+        width: 240,
         background: isDark ? '#1a1a1a' : '#fff',
         border: `1px solid ${isDark ? '#3a3a3a' : '#d4d0c8'}`,
         borderRadius: 6,
@@ -408,6 +495,8 @@ function ColumnConfigPanel({ config, isDark, onChange, onClose }) {
           ? '0 8px 28px rgba(0,0,0,0.7)'
           : '0 8px 28px rgba(0,0,0,0.18)',
         padding: '10px 8px 8px',
+        maxHeight: '80vh',
+        overflowY: 'auto',
       }}
       onClick={e => e.stopPropagation()}
     >
@@ -470,21 +559,137 @@ function ColumnConfigPanel({ config, isDark, onChange, onClose }) {
           strategy={verticalListSortingStrategy}
         >
           {config.map(c => {
-            const colDef = ALL_COLUMNS.find(col => col.key === c.key)
-            if (!colDef) return null
+            const label = getColLabel(c.key)
+            if (!label && !isCustomCol(c.key)) return null
             return (
               <SortableColumnItem
                 key={c.key}
                 id={c.key}
-                label={colDef.label}
+                label={label || c.key}
                 visible={c.visible}
                 onToggle={toggle}
                 isDark={isDark}
+                isCustom={isCustomCol(c.key)}
+                onDelete={onRemoveCustomColumn}
               />
             )
           })}
         </SortableContext>
       </DndContext>
+
+      {/* ── Add new custom column ── */}
+      <div style={{
+        marginTop: 8,
+        paddingTop: 8,
+        borderTop: `1px solid ${isDark ? '#2e2e2e' : '#eee'}`,
+      }}>
+        {addingCol ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <input
+              type="text"
+              value={newColName}
+              onChange={e => setNewColName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleAddColumn(); if (e.key === 'Escape') setAddingCol(false) }}
+              placeholder="Column name…"
+              autoFocus
+              style={{
+                width: '100%',
+                padding: '4px 6px',
+                fontSize: 10,
+                fontFamily: 'monospace',
+                border: `1px solid ${isDark ? '#444' : '#ccc'}`,
+                borderRadius: 3,
+                background: isDark ? '#252525' : '#fafafa',
+                color: isDark ? '#ddd' : '#222',
+                outline: 'none',
+                boxSizing: 'border-box',
+              }}
+            />
+            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+              <select
+                value={newColType}
+                onChange={e => setNewColType(e.target.value)}
+                style={{
+                  flex: 1,
+                  padding: '3px 4px',
+                  fontSize: 10,
+                  fontFamily: 'monospace',
+                  border: `1px solid ${isDark ? '#444' : '#ccc'}`,
+                  borderRadius: 3,
+                  background: isDark ? '#252525' : '#fafafa',
+                  color: isDark ? '#ddd' : '#222',
+                  outline: 'none',
+                }}
+              >
+                <option value="text">Free text</option>
+                <option value="dropdown">Dropdown</option>
+              </select>
+              <button
+                onClick={handleAddColumn}
+                disabled={!newColName.trim()}
+                style={{
+                  padding: '3px 8px',
+                  fontSize: 10,
+                  fontFamily: 'monospace',
+                  fontWeight: 700,
+                  border: 'none',
+                  borderRadius: 3,
+                  background: isDark ? '#4ade80' : '#16a34a',
+                  color: '#fff',
+                  cursor: newColName.trim() ? 'pointer' : 'not-allowed',
+                  opacity: newColName.trim() ? 1 : 0.5,
+                }}
+              >
+                Add
+              </button>
+              <button
+                onClick={() => { setAddingCol(false); setNewColName('') }}
+                style={{
+                  padding: '3px 6px',
+                  fontSize: 10,
+                  fontFamily: 'monospace',
+                  border: `1px solid ${isDark ? '#444' : '#ccc'}`,
+                  borderRadius: 3,
+                  background: 'none',
+                  color: isDark ? '#888' : '#666',
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => setAddingCol(true)}
+            style={{
+              width: '100%',
+              padding: '5px 0',
+              fontSize: 9,
+              fontFamily: 'monospace',
+              fontWeight: 700,
+              letterSpacing: '0.07em',
+              textTransform: 'uppercase',
+              border: `1px dashed ${isDark ? '#3a3a3a' : '#d4d0c8'}`,
+              borderRadius: 3,
+              background: 'none',
+              color: isDark ? '#555' : '#aaa',
+              cursor: 'pointer',
+              textAlign: 'center',
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.color = isDark ? '#4ade80' : '#16a34a'
+              e.currentTarget.style.borderColor = isDark ? '#4ade80' : '#16a34a'
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.color = isDark ? '#555' : '#aaa'
+              e.currentTarget.style.borderColor = isDark ? '#3a3a3a' : '#d4d0c8'
+            }}
+          >
+            + New Column
+          </button>
+        )}
+      </div>
     </div>
   )
 }
@@ -499,6 +704,9 @@ function SortableShotRow({
     attributes, listeners, setNodeRef,
     transform, transition, isDragging,
   } = useSortable({ id: shot.id })
+
+  const customDropdownOptions = useStore(s => s.customDropdownOptions)
+  const addCustomDropdownOption = useStore(s => s.addCustomDropdownOption)
 
   const isChecked = !!shot.checked
   const rowBg = isChecked
@@ -527,6 +735,7 @@ function SortableShotRow({
         borderRight: `1px solid ${c.border}`,
         verticalAlign: 'middle',
         overflow: 'hidden',
+        userSelect: 'none',
       }}>
         <div style={{
           display: 'flex',
@@ -592,6 +801,7 @@ function SortableShotRow({
           height: ROW_H,
           overflow: 'hidden',
           verticalAlign: 'middle',
+          userSelect: 'none',
         }
 
         if (col.type === 'checkbox') {
@@ -620,11 +830,15 @@ function SortableShotRow({
           )
         }
 
+        // I/E (Interior/Exterior) — scene-level
         if (col.type === 'intExt') {
           return (
             <td key={col.key} style={cellStyle}>
-              <IntExtCell
+              <SceneLevelDropdownCell
                 value={scene.intOrExt}
+                options={INT_EXT_OPTIONS}
+                customOptions={customDropdownOptions['int'] || []}
+                onAddCustomOption={(v) => addCustomDropdownOption('int', v)}
                 isDark={isDark}
                 onChange={(val) => updateScene(scene.id, { intOrExt: val })}
               />
@@ -632,15 +846,41 @@ function SortableShotRow({
           )
         }
 
+        // D/N (Day/Night) — scene-level
+        if (col.type === 'dayNight') {
+          return (
+            <td key={col.key} style={cellStyle}>
+              <SceneLevelDropdownCell
+                value={scene.dayNight || 'DAY'}
+                options={DAY_NIGHT_OPTIONS}
+                customOptions={customDropdownOptions['dn'] || []}
+                onAddCustomOption={(v) => addCustomDropdownOption('dn', v)}
+                isDark={isDark}
+                onChange={(val) => updateScene(scene.id, { dayNight: val })}
+              />
+            </td>
+          )
+        }
+
+        // Compute value for regular cells
         const val = col.key.startsWith('specs.')
           ? (shot.specs?.[col.key.split('.')[1]] ?? '')
           : (shot[col.key] ?? '')
+
+        const customOpts = col.customOptionsField
+          ? (customDropdownOptions[col.customOptionsField] || [])
+          : []
 
         return (
           <td key={col.key} style={cellStyle}>
             <EditableCell
               type={col.type}
               options={col.options}
+              customOptions={customOpts}
+              onAddCustomOption={col.customOptionsField
+                ? (v) => addCustomDropdownOption(col.customOptionsField, v)
+                : undefined
+              }
               value={val}
               isDark={isDark}
               onChange={(newVal) => handleShotChange(shot.id, col.key, newVal)}
@@ -654,17 +894,21 @@ function SortableShotRow({
 
 // ── Main ShotlistTab ──────────────────────────────────────────────────────────
 export default function ShotlistTab() {
-  const scenes               = useStore(s => s.scenes)
-  const getShotsForScene     = useStore(s => s.getShotsForScene)
-  const updateShot           = useStore(s => s.updateShot)
-  const updateShotSpec       = useStore(s => s.updateShotSpec)
-  const updateScene          = useStore(s => s.updateScene)
-  const addShot              = useStore(s => s.addShot)
-  const deleteShot           = useStore(s => s.deleteShot)
-  const reorderShots         = useStore(s => s.reorderShots)
-  const theme                = useStore(s => s.theme)
-  const shotlistColumnConfig = useStore(s => s.shotlistColumnConfig)
+  const scenes                  = useStore(s => s.scenes)
+  const getShotsForScene        = useStore(s => s.getShotsForScene)
+  const updateShot              = useStore(s => s.updateShot)
+  const updateShotSpec          = useStore(s => s.updateShotSpec)
+  const updateScene             = useStore(s => s.updateScene)
+  const addShot                 = useStore(s => s.addShot)
+  const deleteShot              = useStore(s => s.deleteShot)
+  const reorderShots            = useStore(s => s.reorderShots)
+  const addScene                = useStore(s => s.addScene)
+  const theme                   = useStore(s => s.theme)
+  const shotlistColumnConfig    = useStore(s => s.shotlistColumnConfig)
   const setShotlistColumnConfig = useStore(s => s.setShotlistColumnConfig)
+  const customColumns           = useStore(s => s.customColumns)
+  const addCustomColumn         = useStore(s => s.addCustomColumn)
+  const removeCustomColumn      = useStore(s => s.removeCustomColumn)
   const isDark = theme === 'dark'
 
   const [configPanelOpen, setConfigPanelOpen] = useState(false)
@@ -674,11 +918,31 @@ export default function ShotlistTab() {
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   )
 
+  // Merge built-in columns with custom columns into a unified lookup map
+  const allColumnsMap = useMemo(() => {
+    const map = {}
+    BUILTIN_COLUMNS.forEach(col => { map[col.key] = col })
+    customColumns.forEach(c => {
+      map[c.key] = {
+        key: c.key,
+        label: c.label,
+        width: 100,
+        type: c.fieldType === 'dropdown' ? 'dropdown' : 'text',
+        options: [],
+        customOptionsField: c.fieldType === 'dropdown' ? c.key : undefined,
+        isCustom: true,
+      }
+    })
+    return map
+  }, [customColumns])
+
   // Compute visible columns in config order
-  const visibleColumns = (shotlistColumnConfig || [])
-    .filter(c => c.visible)
-    .map(c => ALL_COLUMNS.find(col => col.key === c.key))
-    .filter(Boolean)
+  const visibleColumns = useMemo(() => {
+    return (shotlistColumnConfig || [])
+      .filter(c => c.visible)
+      .map(c => allColumnsMap[c.key])
+      .filter(Boolean)
+  }, [shotlistColumnConfig, allColumnsMap])
 
   const totalTableWidth = DRAG_COL_WIDTH + visibleColumns.reduce((sum, col) => sum + col.width, 0)
 
@@ -706,6 +970,17 @@ export default function ShotlistTab() {
     if (!over || active.id === over.id) return
     reorderShots(sceneId, active.id, over.id)
   }, [reorderShots])
+
+  const handleAddScene = useCallback(() => {
+    const sceneLabel = window.prompt('Scene name:', `SCENE ${scenes.length + 1}`)
+    if (sceneLabel === null) return
+    const rawIntExt = window.prompt('Interior or Exterior? (INT / EXT / INT/EXT):', 'INT')
+    if (rawIntExt === null) return
+    const intOrExt = ['INT', 'EXT', 'INT/EXT'].includes(rawIntExt.toUpperCase().trim())
+      ? rawIntExt.toUpperCase().trim()
+      : 'INT'
+    addScene({ sceneLabel: sceneLabel.toUpperCase().trim(), intOrExt })
+  }, [scenes.length, addScene])
 
   // Close config panel when clicking outside
   useEffect(() => {
@@ -772,11 +1047,14 @@ export default function ShotlistTab() {
             isDark={isDark}
             onChange={setShotlistColumnConfig}
             onClose={() => setConfigPanelOpen(false)}
+            customColumns={customColumns}
+            onAddCustomColumn={addCustomColumn}
+            onRemoveCustomColumn={removeCustomColumn}
           />
         )}
       </div>
 
-      {/* ── Table ── */}
+      {/* ── Table + Add Scene ── */}
       <div style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
         <table style={{
           borderCollapse: 'collapse',
@@ -874,6 +1152,8 @@ export default function ShotlistTab() {
                           {scene.location}
                           <span style={{ fontWeight: 300, opacity: 0.45, margin: '0 10px' }}>|</span>
                           {scene.intOrExt}
+                          <span style={{ fontWeight: 300, opacity: 0.45, margin: '0 6px' }}>·</span>
+                          {scene.dayNight || 'DAY'}
                         </span>
                         <span style={{ fontWeight: 400, fontSize: 10, opacity: 0.6, letterSpacing: '0.05em' }}>
                           {shots.length} SHOT{shots.length !== 1 ? 'S' : ''}
@@ -981,6 +1261,46 @@ export default function ShotlistTab() {
             })}
           </tbody>
         </table>
+
+        {/* ── Add Scene button ── */}
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '20px 0 8px' }}>
+          <button
+            onClick={handleAddScene}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 7,
+              padding: '8px 22px',
+              background: 'none',
+              border: `1.5px dashed ${isDark ? '#3a3a3a' : '#c4bfb5'}`,
+              borderRadius: 6,
+              cursor: 'pointer',
+              fontSize: 11,
+              fontFamily: 'monospace',
+              fontWeight: 700,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              color: isDark ? '#444' : '#b0ada8',
+              transition: 'all 0.12s',
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.color = isDark ? '#4ade80' : '#16a34a'
+              e.currentTarget.style.borderColor = isDark ? '#4ade80' : '#16a34a'
+              e.currentTarget.style.background = isDark ? 'rgba(74,222,128,0.06)' : 'rgba(22,163,74,0.05)'
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.color = isDark ? '#444' : '#b0ada8'
+              e.currentTarget.style.borderColor = isDark ? '#3a3a3a' : '#c4bfb5'
+              e.currentTarget.style.background = 'none'
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <line x1="6" y1="1" x2="6" y2="11" />
+              <line x1="1" y1="6" x2="11" y2="6" />
+            </svg>
+            Add Scene
+          </button>
+        </div>
       </div>
     </div>
   )

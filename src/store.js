@@ -15,7 +15,8 @@ export const CARD_COLORS = [
 export const DEFAULT_COLUMN_CONFIG = [
   { key: 'checked',        visible: true },
   { key: 'displayId',      visible: true },
-  { key: '__intExt__',     visible: true },
+  { key: '__int__',        visible: true },
+  { key: '__dn__',         visible: true },
   { key: 'subject',        visible: true },
   { key: 'specs.type',     visible: true },
   { key: 'focalLength',    visible: true },
@@ -71,6 +72,7 @@ function createScene(overrides = {}) {
     sceneLabel: `SCENE ${num}`,
     location: 'LOCATION',
     intOrExt: 'INT',
+    dayNight: 'DAY',
     cameras: [{ name: 'Camera 1', body: 'fx30' }],
     pageNotes: '*NOTE: \n*SHOOT ORDER: ',
     shots: [],
@@ -123,6 +125,10 @@ const useStore = create((set, get) => ({
   activeTab: 'storyboard', // 'storyboard' | 'shotlist'
   shotlistColumnConfig: DEFAULT_COLUMN_CONFIG,
 
+  // Custom columns and dropdown options
+  customColumns: [], // [{ key, label, fieldType: 'text'|'dropdown' }]
+  customDropdownOptions: {}, // { fieldKey: ['option1', 'option2', ...] }
+
   // ── Scene helpers ────────────────────────────────────────────────────
 
   getScene: (sceneId) => get().scenes.find(s => s.id === sceneId),
@@ -143,8 +149,8 @@ const useStore = create((set, get) => ({
 
   // ── Scene actions ────────────────────────────────────────────────────
 
-  addScene: () => {
-    const scene = createScene()
+  addScene: (overrides = {}) => {
+    const scene = createScene(overrides)
     set(state => ({ scenes: [...state.scenes, scene] }))
     get()._scheduleAutoSave()
     return scene.id
@@ -304,6 +310,38 @@ const useStore = create((set, get) => ({
     get()._scheduleAutoSave()
   },
 
+  addCustomColumn: (label, fieldType) => {
+    const key = `custom_${Date.now()}`
+    const col = { key, label, fieldType: fieldType || 'text' }
+    set(state => ({
+      customColumns: [...state.customColumns, col],
+      shotlistColumnConfig: [...state.shotlistColumnConfig, { key, visible: true }],
+    }))
+    get()._scheduleAutoSave()
+  },
+
+  removeCustomColumn: (key) => {
+    set(state => ({
+      customColumns: state.customColumns.filter(c => c.key !== key),
+      shotlistColumnConfig: state.shotlistColumnConfig.filter(c => c.key !== key),
+    }))
+    get()._scheduleAutoSave()
+  },
+
+  addCustomDropdownOption: (field, option) => {
+    set(state => {
+      const current = state.customDropdownOptions[field] || []
+      if (current.includes(option)) return state
+      return {
+        customDropdownOptions: {
+          ...state.customDropdownOptions,
+          [field]: [...current, option],
+        },
+      }
+    })
+    get()._scheduleAutoSave()
+  },
+
   showContextMenu: (shotId, sceneId, x, y) => set({ contextMenu: { shotId, sceneId, x, y } }),
   hideContextMenu: () => set({ contextMenu: null }),
 
@@ -313,6 +351,7 @@ const useStore = create((set, get) => ({
     const {
       projectName, columnCount, defaultFocalLength,
       theme, autoSave, useDropdowns, scenes, shotlistColumnConfig,
+      customColumns, customDropdownOptions,
     } = get()
     return {
       version: 2,
@@ -323,6 +362,8 @@ const useStore = create((set, get) => ({
       autoSave,
       useDropdowns,
       shotlistColumnConfig,
+      customColumns,
+      customDropdownOptions,
       scenes: scenes.map(scene => ({
         ...scene,
         shots: scene.shots.map(s => ({ ...s })),
@@ -365,6 +406,30 @@ const useStore = create((set, get) => ({
       theme, autoSave, useDropdowns,
     } = data
 
+    const loadedCustomColumns = data.customColumns || []
+    const loadedCustomDropdownOptions = data.customDropdownOptions || {}
+
+    const mapShot = (s) => ({
+      id: s.id || `shot_${Date.now()}_${++shotCounter}`,
+      cameraName: s.cameraName || 'Camera 1',
+      focalLength: s.focalLength || '85mm',
+      color: s.color || DEFAULT_COLOR,
+      image: s.image || null,
+      specs: s.specs || { size: '', type: '', move: '', equip: '' },
+      notes: s.notes || '',
+      subject: s.subject || '',
+      checked: s.checked || false,
+      scriptTime: s.scriptTime || '',
+      setupTime: s.setupTime || '',
+      predictedTakes: s.predictedTakes || '',
+      shootTime: s.shootTime || '',
+      takeNumber: s.takeNumber || '',
+      // Preserve any extra fields (e.g. custom columns)
+      ...Object.fromEntries(
+        Object.entries(s).filter(([k]) => k.startsWith('custom_'))
+      ),
+    })
+
     let scenes
     if (data.scenes && Array.isArray(data.scenes)) {
       // New multi-scene format (v2)
@@ -373,24 +438,10 @@ const useStore = create((set, get) => ({
         sceneLabel: scene.sceneLabel || 'SCENE 1',
         location: scene.location || 'LOCATION',
         intOrExt: scene.intOrExt || 'INT',
+        dayNight: scene.dayNight || 'DAY',
         cameras: scene.cameras || [{ name: scene.cameraName || 'Camera 1', body: scene.cameraBody || 'fx30' }],
         pageNotes: scene.pageNotes || '',
-        shots: (scene.shots || []).map(s => ({
-          id: s.id || `shot_${Date.now()}_${++shotCounter}`,
-          cameraName: s.cameraName || 'Camera 1',
-          focalLength: s.focalLength || '85mm',
-          color: s.color || DEFAULT_COLOR,
-          image: s.image || null,
-          specs: s.specs || { size: '', type: '', move: '', equip: '' },
-          notes: s.notes || '',
-          subject: s.subject || '',
-          checked: s.checked || false,
-          scriptTime: s.scriptTime || '',
-          setupTime: s.setupTime || '',
-          predictedTakes: s.predictedTakes || '',
-          shootTime: s.shootTime || '',
-          takeNumber: s.takeNumber || '',
-        })),
+        shots: (scene.shots || []).map(mapShot),
       }))
     } else {
       // Old single-scene format (v1) – migrate
@@ -399,24 +450,10 @@ const useStore = create((set, get) => ({
         sceneLabel: data.sceneLabel || 'SCENE 1',
         location: data.location || 'LOCATION',
         intOrExt: data.intOrExt || 'INT',
+        dayNight: data.dayNight || 'DAY',
         cameras: [{ name: data.cameraName || 'Camera 1', body: data.cameraBody || 'fx30' }],
         pageNotes: data.pageNotes || '',
-        shots: (data.shots || []).map(s => ({
-          id: s.id || `shot_${Date.now()}_${++shotCounter}`,
-          cameraName: s.cameraName || 'Camera 1',
-          focalLength: s.focalLength || '85mm',
-          color: s.color || DEFAULT_COLOR,
-          image: s.image || null,
-          specs: s.specs || { size: '', type: '', move: '', equip: '' },
-          notes: s.notes || '',
-          subject: s.subject || '',
-          checked: s.checked || false,
-          scriptTime: s.scriptTime || '',
-          setupTime: s.setupTime || '',
-          predictedTakes: s.predictedTakes || '',
-          shootTime: s.shootTime || '',
-          takeNumber: s.takeNumber || '',
-        })),
+        shots: (data.shots || []).map(mapShot),
       })]
     }
 
@@ -430,12 +467,31 @@ const useStore = create((set, get) => ({
       shotlistColumnConfig: (() => {
         const saved = data.shotlistColumnConfig
         if (!saved || !Array.isArray(saved) || saved.length === 0) return DEFAULT_COLUMN_CONFIG
-        // Preserve saved order/visibility; append any columns added since the
-        // project was last saved so they're not silently missing.
-        const savedKeys = new Set(saved.map(c => c.key))
-        const newCols = DEFAULT_COLUMN_CONFIG.filter(c => !savedKeys.has(c.key))
-        return newCols.length ? [...saved, ...newCols] : saved
+        // Migrate legacy __intExt__ → __int__ + __dn__
+        let migrated = []
+        let didMigrate = false
+        for (const c of saved) {
+          if (c.key === '__intExt__') {
+            migrated.push({ key: '__int__', visible: c.visible })
+            migrated.push({ key: '__dn__', visible: c.visible })
+            didMigrate = true
+          } else {
+            migrated.push(c)
+          }
+        }
+        const base = didMigrate ? migrated : saved
+        // Append any built-in columns not yet in saved config
+        const savedKeys = new Set(base.map(c => c.key))
+        const newBuiltin = DEFAULT_COLUMN_CONFIG.filter(c => !savedKeys.has(c.key))
+        // Append any custom columns from saved data not yet in config
+        const customInConfig = loadedCustomColumns
+          .filter(c => !savedKeys.has(c.key))
+          .map(c => ({ key: c.key, visible: true }))
+        const all = [...base, ...newBuiltin, ...customInConfig]
+        return all
       })(),
+      customColumns: loadedCustomColumns,
+      customDropdownOptions: loadedCustomDropdownOptions,
       scenes,
       lastSaved: new Date().toISOString(),
     })
