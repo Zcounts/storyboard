@@ -137,9 +137,14 @@ export default function App() {
   const activeTab = useStore(s => s.activeTab)
   const setActiveTab = useStore(s => s.setActiveTab)
 
+  const projectName = useStore(s => s.projectName)
   const [exportModalOpen, setExportModalOpen] = useState(false)
-  // pageRefs is a flat array of all page-document elements in render order
+  // When set, overrides activeTab in the export modal (e.g. explicit pick from toolbar dropdown).
+  const [forcedExportTab, setForcedExportTab] = useState(null)
+  // pageRefs is a flat array of all storyboard page-document elements
   const pageRefs = useRef([])
+  // shotlistRef points to the ShotlistTab root container for PDF export
+  const shotlistRef = useRef(null)
 
   // Reset refs array size on render so stale refs don't linger
   const totalPages = scenes.reduce((acc, scene) => {
@@ -202,8 +207,14 @@ export default function App() {
     >
       {/* Toolbar */}
       <Toolbar
-        onExportPDF={() => setExportModalOpen(true)}
-        onExportPNG={() => setExportModalOpen(true)}
+        onExportPDF={(tab) => {
+          setForcedExportTab(tab ?? null)
+          setExportModalOpen(true)
+        }}
+        onExportPNG={() => {
+          setForcedExportTab(null)
+          setExportModalOpen(true)
+        }}
       />
 
       {/* Recent Projects bar */}
@@ -287,7 +298,7 @@ export default function App() {
         </div>
       ) : (
         <div className="flex-1 flex flex-col overflow-auto">
-          <ShotlistTab />
+          <ShotlistTab containerRef={shotlistRef} />
         </div>
       )}
 
@@ -300,8 +311,11 @@ export default function App() {
       {/* Export Modal */}
       <ExportModal
         isOpen={exportModalOpen}
-        onClose={() => setExportModalOpen(false)}
+        onClose={() => { setExportModalOpen(false); setForcedExportTab(null) }}
         pageRefs={pageRefs}
+        shotlistRef={shotlistRef}
+        activeTab={forcedExportTab ?? activeTab}
+        projectName={projectName}
       />
     </div>
   )
