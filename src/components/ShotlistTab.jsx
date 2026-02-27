@@ -1,4 +1,5 @@
-import React, { useState, useCallback, useRef, useEffect, useId, useMemo } from 'react'
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react'
+import CustomDropdown from './CustomDropdown'
 import {
   DndContext,
   closestCenter,
@@ -82,7 +83,6 @@ function sumScriptTimes(shots) {
 // class of "first click selects, second click types" bugs because there is no
 // display/edit toggle — the input is always there.
 function EditableCell({ value, onChange, type, options, customOptions, onAddCustomOption, isChecked, isDark }) {
-  const datalistId = useId()
   const [localValue, setLocalValue] = useState(value ?? '')
   const [isFocused, setIsFocused] = useState(false)
   // Ref used to suppress onChange when user presses Escape to cancel an edit.
@@ -187,26 +187,34 @@ function EditableCell({ value, onChange, type, options, customOptions, onAddCust
     )
   }
 
-  // ── Dropdown via datalist ──
+  // ── Dropdown via CustomDropdown (replaces native datalist) ──
   if (type === 'dropdown') {
     const allOpts = [...new Set([...(options || []), ...(customOptions || [])])]
     return (
-      <>
-        <input
-          type="text"
-          value={localValue}
-          list={datalistId}
-          onChange={e => setLocalValue(e.target.value)}
-          onFocus={handleFocus}
-          onBlur={handleBlur}
-          onKeyDown={handleKeyDown}
-          style={{ ...inputStyle, padding: '0 4px' }}
-          autoComplete="off"
-        />
-        <datalist id={datalistId}>
-          {allOpts.map(o => <option key={o} value={o} />)}
-        </datalist>
-      </>
+      <CustomDropdown
+        value={value}
+        options={allOpts}
+        onChange={onChange}
+        onAddCustomOption={onAddCustomOption}
+        inputStyle={{
+          width: '100%',
+          height: '100%',
+          border: 'none',
+          background: 'transparent',
+          color: value
+            ? (isDark ? '#e0e0e0' : '#1a1a1a')
+            : (isDark ? '#555' : '#ccc'),
+          fontSize: 11,
+          fontFamily: 'inherit',
+          padding: '0 4px',
+          outline: 'none',
+          cursor: 'default',
+          boxSizing: 'border-box',
+          display: 'block',
+        }}
+        focusBg={isDark ? '#1e3a5f' : '#eff6ff'}
+        isDark={isDark}
+      />
     )
   }
 
@@ -251,73 +259,33 @@ function EditableCell({ value, onChange, type, options, customOptions, onAddCust
 }
 
 // ── SceneLevelDropdownCell — for scene-wide I/E and D/N ───────────────────────
-// Always renders an input (same pattern as EditableCell) — no display/edit toggle.
+// Uses CustomDropdown so options are never filtered by the browser.
 function SceneLevelDropdownCell({ value, onChange, options, customOptions, onAddCustomOption, isDark }) {
-  const datalistId = useId()
-  const [localValue, setLocalValue] = useState(value ?? '')
-  const [isFocused, setIsFocused] = useState(false)
-  const escapedRef = useRef(false)
-
-  useEffect(() => {
-    if (!isFocused) setLocalValue(value ?? '')
-  }, [value, isFocused])
-
   const allOpts = [...new Set([...(options || []), ...(customOptions || [])])]
-
-  const handleFocus = () => {
-    setIsFocused(true)
-    escapedRef.current = false
-  }
-
-  const handleBlur = (e) => {
-    if (!escapedRef.current) {
-      const v = e.target.value.trim()
-      if (v && !allOpts.includes(v) && onAddCustomOption) {
-        onAddCustomOption(v)
-      }
-      if (v && v !== value) onChange(v)
-    }
-    escapedRef.current = false
-    setIsFocused(false)
-  }
-
   return (
-    <>
-      <input
-        type="text"
-        value={localValue}
-        list={datalistId}
-        onChange={e => setLocalValue(e.target.value)}
-        onFocus={handleFocus}
-        onBlur={handleBlur}
-        onKeyDown={e => {
-          if (e.key === 'Enter') e.target.blur()
-          if (e.key === 'Escape') {
-            escapedRef.current = true
-            e.target.blur()
-          }
-        }}
-        style={{
-          width: '100%',
-          height: '100%',
-          border: 'none',
-          background: isFocused ? (isDark ? '#1e3a5f' : '#eff6ff') : 'transparent',
-          color: isDark ? (isFocused ? '#e0e0e0' : '#aaa') : (isFocused ? '#1a1a1a' : '#444'),
-          fontSize: 11,
-          fontFamily: 'monospace',
-          fontWeight: 600,
-          padding: '0 4px',
-          outline: 'none',
-          cursor: isFocused ? 'text' : 'default',
-          boxSizing: 'border-box',
-          display: 'block',
-        }}
-        autoComplete="off"
-      />
-      <datalist id={datalistId}>
-        {allOpts.map(o => <option key={o} value={o} />)}
-      </datalist>
-    </>
+    <CustomDropdown
+      value={value}
+      options={allOpts}
+      onChange={onChange}
+      onAddCustomOption={onAddCustomOption}
+      inputStyle={{
+        width: '100%',
+        height: '100%',
+        border: 'none',
+        background: 'transparent',
+        color: isDark ? '#aaa' : '#444',
+        fontSize: 11,
+        fontFamily: 'monospace',
+        fontWeight: 600,
+        padding: '0 4px',
+        outline: 'none',
+        cursor: 'default',
+        boxSizing: 'border-box',
+        display: 'block',
+      }}
+      focusBg={isDark ? '#1e3a5f' : '#eff6ff'}
+      isDark={isDark}
+    />
   )
 }
 
@@ -715,7 +683,7 @@ function SortableShotRow({
       onMouseLeave={() => setHovered(false)}
     >
       {/* Drag handle + delete utility cell */}
-      <td style={{
+      <td className="shotlist-ui-col" style={{
         width: DRAG_COL_WIDTH,
         padding: 0,
         borderBottom: `1px solid ${c.border}`,
@@ -880,7 +848,7 @@ function SortableShotRow({
 }
 
 // ── Main ShotlistTab ──────────────────────────────────────────────────────────
-export default function ShotlistTab() {
+export default function ShotlistTab({ containerRef }) {
   const scenes                  = useStore(s => s.scenes)
   const getShotsForScene        = useStore(s => s.getShotsForScene)
   const updateShot              = useStore(s => s.updateShot)
@@ -974,13 +942,16 @@ export default function ShotlistTab() {
   }, [configPanelOpen])
 
   return (
-    <div style={{
-      flex: 1,
-      display: 'flex',
-      flexDirection: 'column',
-      overflow: 'hidden',
-      backgroundColor: c.pageBg,
-    }}>
+    <div
+      ref={containerRef}
+      style={{
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+        backgroundColor: c.pageBg,
+      }}
+    >
 
       {/* ── Toolbar ── */}
       <div style={{
@@ -1061,7 +1032,7 @@ export default function ShotlistTab() {
           <thead>
             <tr style={{ height: ROW_H }}>
               {/* Drag col header (empty) */}
-              <th style={{
+              <th className="shotlist-ui-col" style={{
                 position: 'sticky',
                 top: 0,
                 zIndex: 10,
@@ -1193,7 +1164,7 @@ export default function ShotlistTab() {
                   )}
 
                   {/* ＋ Add Shot row */}
-                  <tr>
+                  <tr className="shotlist-add-row">
                     <td
                       colSpan={totalCols}
                       style={{
@@ -1246,7 +1217,7 @@ export default function ShotlistTab() {
         </table>
 
         {/* ── Add Scene button ── */}
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '20px 0 8px' }}>
+        <div className="shotlist-add-scene" style={{ display: 'flex', justifyContent: 'center', padding: '20px 0 8px' }}>
           <button
             onClick={addScene}
             style={{

@@ -1,5 +1,6 @@
-import React, { useId } from 'react'
+import React from 'react'
 import useStore from '../store'
+import CustomDropdown from './CustomDropdown'
 
 const SIZE_OPTIONS = ['WIDE SHOT', 'MEDIUM', 'CLOSE UP', 'OTS', 'ECU', 'INSERT', 'ESTABLISHING']
 const TYPE_OPTIONS = ['EYE LVL', 'SHOULDER LVL', 'CROWD LVL', 'HIGH ANGLE', 'LOW ANGLE', 'DUTCH']
@@ -17,7 +18,6 @@ function SpecCell({ shotId, specKey, value, useDropdowns }) {
   const updateShotSpec = useStore(s => s.updateShotSpec)
   const customDropdownOptions = useStore(s => s.customDropdownOptions)
   const addCustomDropdownOption = useStore(s => s.addCustomDropdownOption)
-  const listId = useId()
 
   if (useDropdowns) {
     const defaultOpts = SPEC_OPTIONS[specKey] || []
@@ -25,27 +25,24 @@ function SpecCell({ shotId, specKey, value, useDropdowns }) {
     const allOpts = [...new Set([...defaultOpts, ...customOpts])]
 
     return (
-      <>
-        <input
-          type="text"
-          value={value}
-          list={listId}
-          onChange={e => updateShotSpec(shotId, specKey, e.target.value)}
-          onBlur={e => {
-            const val = e.target.value.trim()
-            if (val && !allOpts.includes(val)) {
-              addCustomDropdownOption(specKey, val)
-            }
-          }}
-          title={value}
-          autoComplete="off"
-        />
-        <datalist id={listId}>
-          {allOpts.map(opt => (
-            <option key={opt} value={opt} />
-          ))}
-        </datalist>
-      </>
+      <CustomDropdown
+        value={value}
+        options={allOpts}
+        onChange={val => updateShotSpec(shotId, specKey, val)}
+        onAddCustomOption={opt => addCustomDropdownOption(specKey, opt)}
+        inputStyle={{
+          width: '100%',
+          border: 'none',
+          background: 'transparent',
+          textAlign: 'center',
+          fontSize: 10,
+          padding: 0,
+          outline: 'none',
+          fontFamily: 'inherit',
+          cursor: 'pointer',
+          boxSizing: 'border-box',
+        }}
+      />
     )
   }
 

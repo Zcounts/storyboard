@@ -83,18 +83,15 @@ function collectAllCSS() {
   return css
 }
 
-// ── Electron path: webContents.printToPDF() ───────────────────────────────────
+// ── Storyboard PDF: Electron path ─────────────────────────────────────────────
 //
-// Build a single self-contained HTML document that contains ALL pages.  Each
-// page is a .page-document div.  A @page CSS rule + break-after: page on each
-// div instructs Chromium's print engine to paginate correctly.  Chromium handles
-// fonts, images, and layout natively — no canvas capture, no memory limits.
+// Build a single self-contained HTML document that contains ALL storyboard pages.
+// Each page is a .page-document div. A @page CSS rule + break-after: page on each
+// div instructs Chromium's print engine to paginate correctly.
 
-function buildPrintHtml(pages) {
+function buildStoryboardPrintHtml(pages) {
   const css = collectAllCSS()
 
-  // Print-specific overrides: A4 landscape pages, no margins, page breaks
-  // between each .page-document, hide UI-only chrome elements.
   const printCss = `
 @page {
   size: A4 landscape;
@@ -121,9 +118,22 @@ html, body {
 .add-shot-btn, .add-scene-btn, .add-scene-row, .delete-btn, .drag-handle {
   display: none !important;
 }
+/* Fix: normalize page-header button font sizes to match surrounding text.
+   Browsers reset button font-size in their UA stylesheet; this override
+   ensures INT/EXT and DAY/NIGHT labels render at the same size as the
+   scene number and location inputs. */
+.page-header button {
+  font-size: 1.25rem !important;
+  line-height: 1.75rem !important;
+  font-weight: 900 !important;
+  font-family: inherit !important;
+  letter-spacing: -0.025em !important;
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+}
 `
 
-  // Build outerHTML for each page with inputs replaced by text spans
   const pageHtmlParts = pages.map(el => {
     const restore = prepareForCapture(el)
     try {
@@ -133,9 +143,6 @@ html, body {
     }
   })
 
-  // Inline a small script to replace failed images with a grey rectangle.
-  // Images stored as base64 data URIs should never fail, but this guards
-  // against any external src references.
   const imgFallbackScript = `
 <script>
 (function() {
@@ -176,11 +183,90 @@ ${imgFallbackScript}
 </html>`
 }
 
-async function exportToPDFPrint(pages, projectName) {
-  console.log(`[PDF Export] Starting printToPDF path — ${pages.length} page(s)`)
+// ── Shotlist PDF: build print HTML ────────────────────────────────────────────
+//
+// Captures the entire shotlist container element and produces a print-ready
+// HTML document.  The table's sticky headers become proper thead-group headers
+// that repeat on each printed page.  UI-only elements (drag handles, add-shot
+// buttons, the add-scene button) are hidden via CSS class names added to the
+// ShotlistTab JSX.
 
-  const htmlContent = buildPrintHtml(pages)
-  console.log(`[PDF Export] Print HTML built — ${(htmlContent.length / 1024).toFixed(0)}KB`)
+function buildShotlistPrintHtml(el) {
+  const css = collectAllCSS()
+
+  const printCss = `
+@page {
+  size: A4 landscape;
+  margin: 10mm 8mm;
+}
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #ffffff;
+}
+/* Expand the scrollable container so the full table is visible */
+.shotlist-print-outer {
+  overflow: visible !important;
+  height: auto !important;
+  max-height: none !important;
+  padding: 0 !important;
+  flex: none !important;
+}
+/* Table fills the page width */
+.shotlist-print-outer table {
+  width: 100% !important;
+  min-width: 0 !important;
+}
+/* Sticky positioning does not work in print; remove it so headers flow normally */
+.shotlist-print-outer thead th {
+  position: static !important;
+}
+/* Repeat the header row on every printed page */
+thead {
+  display: table-header-group;
+}
+/* Keep each data row together */
+tr {
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+/* Hide drag/delete utility column and all interactive-only rows */
+.shotlist-ui-col,
+.shotlist-add-row,
+.shotlist-add-scene {
+  display: none !important;
+}
+`
+
+  const restore = prepareForCapture(el)
+  let innerHtml
+  try {
+    innerHtml = el.innerHTML
+  } finally {
+    restore()
+  }
+
+  // Wrap with a class so our print CSS can target it without matching anything
+  // in the document's own live DOM.
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+${css}
+${printCss}
+</style>
+</head>
+<body>
+<div class="shotlist-print-outer">${innerHtml}</div>
+</body>
+</html>`
+}
+
+// ── Electron path: webContents.printToPDF() ───────────────────────────────────
+
+async function exportViaPrint(htmlContent, projectName, suffix = '') {
+  console.log(`[PDF Export] Starting printToPDF — ${(htmlContent.length / 1024).toFixed(0)}KB`)
 
   let result
   try {
@@ -196,9 +282,10 @@ async function exportToPDFPrint(pages, projectName) {
   console.log(`[PDF Export] PDF buffer received — ${(result.pdfData.length / 1024).toFixed(0)}KB`)
 
   const buffer = new Uint8Array(result.pdfData)
-  const fileName = projectName
-    ? `${projectName.replace(/[^a-z0-9]/gi, '_')}.pdf`
-    : 'shotlist.pdf'
+  const base = projectName
+    ? projectName.replace(/[^a-z0-9]/gi, '_')
+    : 'export'
+  const fileName = suffix ? `${base}_${suffix}.pdf` : `${base}.pdf`
 
   await window.electronAPI.savePDF(fileName, buffer.buffer)
   console.log('[PDF Export] Saved successfully.')
@@ -206,10 +293,6 @@ async function exportToPDFPrint(pages, projectName) {
 
 // ── Browser fallback path: html2canvas ────────────────────────────────────────
 
-/**
- * Wrap html2canvas with a hard timeout so a single broken page can't
- * stall the entire export indefinitely.
- */
 async function captureElementWithTimeout(el, scale = 1.5, timeoutMs = 60000) {
   const restore = prepareForCapture(el)
   try {
@@ -234,7 +317,7 @@ async function captureElementWithTimeout(el, scale = 1.5, timeoutMs = 60000) {
   }
 }
 
-async function exportToPDFBrowser(pages) {
+async function exportPagesBrowser(pages) {
   console.log(`[PDF Export] Starting browser/html2canvas path — ${pages.length} page(s)`)
 
   let pdf = null
@@ -285,43 +368,65 @@ async function exportToPDFBrowser(pages) {
     throw new Error('No pages could be rendered. Check the console for details.')
   }
 
-  pdf.save('shotlist.pdf')
+  pdf.save('storyboard.pdf')
   console.log('[PDF Export] Saved via browser download.')
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-export async function exportToPDF(pageRefs, projectName) {
+/**
+ * Export the storyboard grid pages as a PDF.
+ * pageRefs.current is a flat array of .page-document elements.
+ */
+export async function exportStoryboardPDF(pageRefs, projectName) {
   const pages = (pageRefs?.current || []).filter(Boolean)
   if (pages.length === 0) {
-    console.warn('[PDF Export] No page elements found — aborting.')
+    console.warn('[PDF Export] No storyboard page elements found — aborting.')
     return
   }
 
   try {
     if (window.electronAPI?.printToPDF) {
-      // Electron: use webContents.printToPDF() — reliable, no canvas limits
-      await exportToPDFPrint(pages, projectName)
+      const html = buildStoryboardPrintHtml(pages)
+      await exportViaPrint(html, projectName, 'storyboard')
     } else {
-      // Browser / dev environment: html2canvas fallback
-      await exportToPDFBrowser(pages)
+      await exportPagesBrowser(pages)
     }
   } catch (err) {
-    console.error('[PDF Export] Export failed:', err)
-
-    const raw = err?.message || String(err) || 'Unknown error'
-    let msg = `PDF export failed: ${raw}`
-
-    if (/memory|heap|call stack|out of/i.test(raw)) {
-      msg += '\n\nTip: try removing or resizing large images attached to shots.'
-    } else if (/timeout/i.test(raw)) {
-      msg += '\n\nTip: the page took too long to render — try exporting fewer scenes at once.'
-    } else if (/ipc|main process/i.test(raw)) {
-      msg += '\n\nThe Electron main process could not render the page. Check the developer console for details.'
-    }
-
-    alert(msg)
+    console.error('[PDF Export] Storyboard export failed:', err)
+    _handleExportError(err)
   }
+}
+
+/**
+ * Export the shotlist table as a PDF.
+ * shotlistRef.current is the ShotlistTab root container element.
+ */
+export async function exportShotlistPDF(shotlistRef, projectName) {
+  const el = shotlistRef?.current
+  if (!el) {
+    console.warn('[PDF Export] Shotlist element not found — aborting.')
+    return
+  }
+
+  try {
+    if (window.electronAPI?.printToPDF) {
+      const html = buildShotlistPrintHtml(el)
+      await exportViaPrint(html, projectName, 'shotlist')
+    } else {
+      // Fallback: capture the shotlist container as a single image
+      const pages = [el]
+      await exportPagesBrowser(pages)
+    }
+  } catch (err) {
+    console.error('[PDF Export] Shotlist export failed:', err)
+    _handleExportError(err)
+  }
+}
+
+/** @deprecated Use exportStoryboardPDF or exportShotlistPDF directly */
+export async function exportToPDF(pageRefs, projectName) {
+  return exportStoryboardPDF(pageRefs, projectName)
 }
 
 export async function exportToPNG(pageRefs) {
@@ -332,7 +437,7 @@ export async function exportToPNG(pageRefs) {
     for (let i = 0; i < pages.length; i++) {
       console.log(`[PNG Export] Rendering page ${i + 1}/${pages.length}…`)
       const canvas = await captureElementWithTimeout(pages[i], 2, 60000)
-      const filename = pages.length === 1 ? 'shotlist.png' : `shotlist_page${i + 1}.png`
+      const filename = pages.length === 1 ? 'storyboard.png' : `storyboard_page${i + 1}.png`
 
       if (window.electronAPI) {
         const dataURL = canvas.toDataURL('image/png')
@@ -359,21 +464,52 @@ export async function exportToPNG(pageRefs) {
   }
 }
 
-export default function ExportModal({ isOpen, onClose, pageRefs }) {
+function _handleExportError(err) {
+  const raw = err?.message || String(err) || 'Unknown error'
+  let msg = `PDF export failed: ${raw}`
+  if (/memory|heap|call stack|out of/i.test(raw)) {
+    msg += '\n\nTip: try removing or resizing large images attached to shots.'
+  } else if (/timeout/i.test(raw)) {
+    msg += '\n\nTip: the page took too long to render — try exporting fewer scenes at once.'
+  } else if (/ipc|main process/i.test(raw)) {
+    msg += '\n\nThe Electron main process could not render the page. Check the developer console for details.'
+  }
+  alert(msg)
+}
+
+// ── ExportModal component ──────────────────────────────────────────────────────
+
+export default function ExportModal({ isOpen, onClose, pageRefs, shotlistRef, activeTab, projectName }) {
   const [exporting, setExporting] = useState(false)
   const [exportType, setExportType] = useState(null)
 
   if (!isOpen) return null
 
-  const handleExport = async (type) => {
+  const isStoryboard = activeTab !== 'shotlist'
+  const tabLabel = isStoryboard ? 'Storyboard' : 'Shotlist'
+
+  const handleExportPDF = async (forceTab) => {
+    const tab = forceTab ?? activeTab
     setExporting(true)
-    setExportType(type)
+    setExportType('pdf')
     try {
-      if (type === 'pdf') {
-        await exportToPDF(pageRefs)
+      if (tab === 'shotlist') {
+        await exportShotlistPDF(shotlistRef, projectName)
       } else {
-        await exportToPNG(pageRefs)
+        await exportStoryboardPDF(pageRefs, projectName)
       }
+    } finally {
+      setExporting(false)
+      setExportType(null)
+      onClose()
+    }
+  }
+
+  const handleExportPNG = async () => {
+    setExporting(true)
+    setExportType('png')
+    try {
+      await exportToPNG(pageRefs)
     } finally {
       setExporting(false)
       setExportType(null)
@@ -396,33 +532,77 @@ export default function ExportModal({ isOpen, onClose, pageRefs }) {
           </button>
         </div>
 
-        <p className="text-sm text-gray-600 mb-2">
-          Export your shotlist as a high-resolution document.
-        </p>
-        <p className="text-xs text-gray-400 mb-6">
-          {pageCount} page{pageCount !== 1 ? 's' : ''} will be exported.
-          PDF: one PDF page per document page.
-          PNG: one PNG file per document page.
+        <p className="text-sm text-gray-600 mb-4">
+          Export your {tabLabel.toLowerCase()} as a high-resolution document.
         </p>
 
-        <div className="flex gap-3">
+        {/* Context-aware primary export */}
+        <div className="flex gap-3 mb-3">
           <button
-            onClick={() => handleExport('pdf')}
+            onClick={() => handleExportPDF()}
             disabled={exporting}
             className="flex-1 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors"
           >
-            {exporting && exportType === 'pdf' ? 'Exporting…' : 'Export PDF'}
-            <div className="text-xs font-normal opacity-75">Separate page per scene</div>
+            {exporting && exportType === 'pdf' ? 'Exporting…' : `Export ${tabLabel} PDF`}
+            <div className="text-xs font-normal opacity-75">
+              {isStoryboard ? 'Card grid layout, one page per scene' : 'Full table layout'}
+            </div>
           </button>
-          <button
-            onClick={() => handleExport('png')}
-            disabled={exporting}
-            className="flex-1 py-3 bg-gray-700 text-white rounded-lg font-semibold hover:bg-gray-800 disabled:opacity-50 transition-colors"
-          >
-            {exporting && exportType === 'png' ? 'Exporting…' : 'Export PNG'}
-            <div className="text-xs font-normal opacity-75">One PNG per page</div>
-          </button>
+
+          {isStoryboard && (
+            <button
+              onClick={() => handleExportPNG()}
+              disabled={exporting}
+              className="flex-1 py-3 bg-gray-700 text-white rounded-lg font-semibold hover:bg-gray-800 disabled:opacity-50 transition-colors"
+            >
+              {exporting && exportType === 'png' ? 'Exporting…' : 'Export PNG'}
+              <div className="text-xs font-normal opacity-75">One PNG per page</div>
+            </button>
+          )}
         </div>
+
+        {/* Quick links to the other export type */}
+        <div style={{
+          borderTop: '1px solid #e5e7eb',
+          paddingTop: 12,
+          marginTop: 4,
+          display: 'flex',
+          gap: 8,
+        }}>
+          <span className="text-xs text-gray-400" style={{ alignSelf: 'center' }}>Also export:</span>
+          {isStoryboard ? (
+            <button
+              onClick={() => handleExportPDF('shotlist')}
+              disabled={exporting}
+              className="text-xs text-blue-500 hover:text-blue-700 disabled:opacity-50"
+            >
+              Shotlist PDF →
+            </button>
+          ) : (
+            <button
+              onClick={() => handleExportPDF('storyboard')}
+              disabled={exporting}
+              className="text-xs text-blue-500 hover:text-blue-700 disabled:opacity-50"
+            >
+              Storyboard PDF →
+            </button>
+          )}
+          {!isStoryboard && (
+            <button
+              onClick={() => handleExportPNG()}
+              disabled={exporting}
+              className="text-xs text-gray-500 hover:text-gray-700 disabled:opacity-50"
+            >
+              Storyboard PNG →
+            </button>
+          )}
+        </div>
+
+        {isStoryboard && (
+          <p className="text-xs text-gray-400 mt-3">
+            {pageCount} page{pageCount !== 1 ? 's' : ''} will be exported.
+          </p>
+        )}
       </div>
     </div>
   )
