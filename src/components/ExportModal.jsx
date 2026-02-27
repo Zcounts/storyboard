@@ -44,8 +44,8 @@ const PRINT_BUILTIN_COLUMNS = [
 function getCellValue(colKey, shot, scene) {
   if (colKey === 'checked')    return shot.checked ? '\u2713' : ''
   if (colKey === 'displayId')  return shot.displayId || ''
-  if (colKey === '__int__')    return scene.intOrExt || ''
-  if (colKey === '__dn__')     return scene.dayNight || 'DAY'
+  if (colKey === '__int__')    return shot.intOrExt ?? ''
+  if (colKey === '__dn__')     return shot.dayNight ?? ''
   if (colKey.startsWith('specs.')) return shot.specs?.[colKey.split('.')[1]] ?? ''
   return shot[colKey] ?? ''
 }
@@ -127,8 +127,10 @@ function buildStoryboardPrintHtml() {
       <span class="hdr-title">${escapeHtml(scene.sceneLabel)} | ${escapeHtml(scene.location)} | ${escapeHtml(scene.intOrExt)} &middot; ${escapeHtml(scene.dayNight || 'DAY')}</span>
       ${continuationHtml}
     </div>
-    <div class="hdr-right">
+    <div class="hdr-center">
       ${notesHtml}
+    </div>
+    <div class="hdr-right">
       <span class="hdr-cam">${cameraStr}</span>
     </div>
   </div>
@@ -167,16 +169,16 @@ html, body {
   page-break-after: avoid;
 }
 .page-hdr {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
   padding: 4px 0 5px;
   border-bottom: 2.5px solid #111;
   margin-bottom: 5px;
   flex-shrink: 0;
   gap: 12px;
 }
-.hdr-left { flex: 1; min-width: 0; }
+.hdr-left { min-width: 0; }
 .hdr-title {
   font-size: 13pt;
   font-weight: 900;
@@ -189,7 +191,8 @@ html, body {
   color: #777;
   margin-top: 2px;
 }
-.hdr-right { flex-shrink: 0; text-align: right; }
+.hdr-center { text-align: center; }
+.hdr-right { text-align: right; }
 .hdr-cam {
   font-size: 8pt;
   font-weight: 600;
@@ -201,8 +204,7 @@ html, body {
   font-size: 7pt;
   color: #666;
   white-space: pre-line;
-  margin-bottom: 3px;
-  text-align: right;
+  text-align: center;
 }
 .card-grid {
   display: grid;

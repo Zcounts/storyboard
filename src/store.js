@@ -53,6 +53,9 @@ function createShot(overrides = {}) {
     notes: '',
     subject: '',
     checked: false,
+    // Per-shot I/E and D/N (shotlist-only; scene heading uses scene.intOrExt/dayNight)
+    intOrExt: '',
+    dayNight: '',
     // AD-specific shotlist fields (not shown in storyboard view)
     scriptTime: '',
     setupTime: '',
@@ -184,6 +187,8 @@ const useStore = create((set, get) => ({
       cameraName: scene.cameras?.[0]?.name || 'Camera 1',
       focalLength: defaultFocalLength,
       color: DEFAULT_COLOR,
+      intOrExt: scene.intOrExt || '',
+      dayNight: scene.dayNight || '',
     })
     set(state => ({
       scenes: state.scenes.map(s =>
@@ -411,7 +416,7 @@ const useStore = create((set, get) => ({
     const loadedCustomColumns = data.customColumns || []
     const loadedCustomDropdownOptions = data.customDropdownOptions || {}
 
-    const mapShot = (s) => ({
+    const mapShot = (s, sceneIntOrExt, sceneDayNight) => ({
       id: s.id || `shot_${Date.now()}_${++shotCounter}`,
       cameraName: s.cameraName || 'Camera 1',
       focalLength: s.focalLength || '85mm',
@@ -421,6 +426,9 @@ const useStore = create((set, get) => ({
       notes: s.notes || '',
       subject: s.subject || '',
       checked: s.checked || false,
+      // Per-shot I/E and D/N: use saved value if present, else inherit from scene (migration)
+      intOrExt: s.intOrExt !== undefined ? s.intOrExt : (sceneIntOrExt || ''),
+      dayNight: s.dayNight !== undefined ? s.dayNight : (sceneDayNight || ''),
       scriptTime: s.scriptTime || '',
       setupTime: s.setupTime || '',
       predictedTakes: s.predictedTakes || '',
@@ -443,7 +451,7 @@ const useStore = create((set, get) => ({
         dayNight: scene.dayNight || 'DAY',
         cameras: scene.cameras || [{ name: scene.cameraName || 'Camera 1', body: scene.cameraBody || 'fx30' }],
         pageNotes: scene.pageNotes || '',
-        shots: (scene.shots || []).map(mapShot),
+        shots: (scene.shots || []).map(s => mapShot(s, scene.intOrExt, scene.dayNight)),
       }))
     } else {
       // Old single-scene format (v1) – migrate
@@ -455,7 +463,7 @@ const useStore = create((set, get) => ({
         dayNight: data.dayNight || 'DAY',
         cameras: [{ name: data.cameraName || 'Camera 1', body: data.cameraBody || 'fx30' }],
         pageNotes: data.pageNotes || '',
-        shots: (data.shots || []).map(mapShot),
+        shots: (data.shots || []).map(s => mapShot(s, data.intOrExt, data.dayNight)),
       })]
     }
 

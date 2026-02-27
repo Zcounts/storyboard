@@ -153,41 +153,6 @@ export default function App() {
   }, 0)
   pageRefs.current = pageRefs.current.slice(0, totalPages)
 
-  // ── DIAGNOSTIC: first-click input bug ──────────────────────────────────────
-  // Logs every pointer/mouse/focus/click event on inputs and editable cells so
-  // the root cause of the first-click-not-focusable bug can be identified from
-  // the DevTools console. Check 'defaultPrevented: true' to find the culprit.
-  // Remove this effect once the bug has been confirmed fixed.
-  useEffect(() => {
-    const log = (e) => {
-      const t = e.target
-      if (
-        t.tagName === 'INPUT' ||
-        t.tagName === 'TEXTAREA' ||
-        t.closest('td') ||
-        t.closest('.specs-table')
-      ) {
-        console.log(
-          `[FirstClick] ${e.type}`,
-          `tag=${t.tagName}`,
-          `id=${t.id || '(none)'}`,
-          `class=${t.className || '(none)'}`,
-          `defaultPrevented=${e.defaultPrevented}`
-        )
-      }
-    }
-    document.addEventListener('pointerdown', log, true)
-    document.addEventListener('mousedown',   log, true)
-    document.addEventListener('focus',       log, true)
-    document.addEventListener('click',       log, true)
-    return () => {
-      document.removeEventListener('pointerdown', log, true)
-      document.removeEventListener('mousedown',   log, true)
-      document.removeEventListener('focus',       log, true)
-      document.removeEventListener('click',       log, true)
-    }
-  }, [])
-
   // Auto-save every 60 seconds
   useEffect(() => {
     if (!autoSave) return
@@ -236,8 +201,8 @@ export default function App() {
 
   return (
     <div
-      className="min-h-screen flex flex-col"
-      style={{ backgroundColor: isDark ? '#1a1a1a' : '#e8e4db' }}
+      className="flex flex-col"
+      style={{ height: '100vh', overflow: 'hidden', backgroundColor: isDark ? '#1a1a1a' : '#e8e4db' }}
       onClick={() => hideContextMenu()}
     >
       {/* Toolbar */}
@@ -255,9 +220,10 @@ export default function App() {
       {/* Recent Projects bar */}
       <RecentProjects />
 
-      {/* Top-level tab navigation */}
+      {/* Top-level tab navigation — sticky, never scrolls out of view */}
       <div className="tab-nav" style={{
         display: 'flex',
+        flexShrink: 0,
         borderBottom: isDark ? '1px solid #333' : '1px solid #ccc',
         backgroundColor: isDark ? '#111' : '#d4cfc6',
         paddingLeft: '16px',
@@ -293,7 +259,7 @@ export default function App() {
 
       {/* Main content */}
       {activeTab === 'storyboard' ? (
-        <div className="flex-1 py-6 px-4 overflow-x-auto">
+        <div className="flex-1 py-6 px-4 overflow-auto">
           <div className="pages-container">
             {scenes.map((scene, sceneIdx) => (
               <React.Fragment key={scene.id}>

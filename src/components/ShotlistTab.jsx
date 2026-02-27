@@ -785,33 +785,35 @@ function SortableShotRow({
           )
         }
 
-        // I/E (Interior/Exterior) — scene-level
+        // I/E (Interior/Exterior) — per-shot independent value
         if (col.type === 'intExt') {
           return (
             <td key={col.key} style={cellStyle}>
-              <SceneLevelDropdownCell
-                value={scene.intOrExt}
+              <EditableCell
+                type="dropdown"
+                value={shot.intOrExt ?? ''}
                 options={INT_EXT_OPTIONS}
                 customOptions={customDropdownOptions['int'] || []}
                 onAddCustomOption={(v) => addCustomDropdownOption('int', v)}
                 isDark={isDark}
-                onChange={(val) => updateScene(scene.id, { intOrExt: val })}
+                onChange={(val) => handleShotChange(shot.id, 'intOrExt', val)}
               />
             </td>
           )
         }
 
-        // D/N (Day/Night) — scene-level
+        // D/N (Day/Night) — per-shot independent value
         if (col.type === 'dayNight') {
           return (
             <td key={col.key} style={cellStyle}>
-              <SceneLevelDropdownCell
-                value={scene.dayNight || 'DAY'}
+              <EditableCell
+                type="dropdown"
+                value={shot.dayNight ?? ''}
                 options={DAY_NIGHT_OPTIONS}
                 customOptions={customDropdownOptions['dn'] || []}
                 onAddCustomOption={(v) => addCustomDropdownOption('dn', v)}
                 isDark={isDark}
-                onChange={(val) => updateScene(scene.id, { dayNight: val })}
+                onChange={(val) => handleShotChange(shot.id, 'dayNight', val)}
               />
             </td>
           )
@@ -1081,12 +1083,12 @@ export default function ShotlistTab({ containerRef }) {
               return (
                 <React.Fragment key={scene.id}>
 
-                  {/* Scene header row */}
+                  {/* Scene header row — inline editable, syncs bidirectionally with storyboard */}
                   <tr>
                     <td
                       colSpan={totalCols}
                       style={{
-                        height: 30,
+                        height: 34,
                         backgroundColor: '#2a2a2a',
                         color: '#ffffff',
                         fontWeight: 700,
@@ -1096,20 +1098,103 @@ export default function ShotlistTab({ containerRef }) {
                         padding: '0 12px',
                         borderTop: '3px solid #111',
                         borderBottom: '1px solid #555',
-                        userSelect: 'none',
                       }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <span>
-                          {scene.sceneLabel}
-                          <span style={{ fontWeight: 300, opacity: 0.45, margin: '0 10px' }}>|</span>
-                          {scene.location}
-                          <span style={{ fontWeight: 300, opacity: 0.45, margin: '0 10px' }}>|</span>
-                          {scene.intOrExt}
-                          <span style={{ fontWeight: 300, opacity: 0.45, margin: '0 6px' }}>·</span>
-                          {scene.dayNight || 'DAY'}
-                        </span>
-                        <span style={{ fontWeight: 400, fontSize: 10, opacity: 0.6, letterSpacing: '0.05em' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 0, flexWrap: 'nowrap' }}>
+                          {/* Scene label */}
+                          <input
+                            type="text"
+                            value={scene.sceneLabel}
+                            onChange={e => updateScene(scene.id, { sceneLabel: e.target.value })}
+                            onPointerDown={e => e.stopPropagation()}
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              outline: 'none',
+                              color: '#ffffff',
+                              fontWeight: 700,
+                              fontSize: 11,
+                              fontFamily: 'monospace',
+                              letterSpacing: '0.08em',
+                              padding: 0,
+                              minWidth: 50,
+                              width: `${Math.max((scene.sceneLabel || '').length, 7)}ch`,
+                            }}
+                            placeholder="SCENE 1"
+                          />
+                          <span style={{ opacity: 0.4, margin: '0 8px' }}>|</span>
+                          {/* Location */}
+                          <input
+                            type="text"
+                            value={scene.location}
+                            onChange={e => updateScene(scene.id, { location: e.target.value })}
+                            onPointerDown={e => e.stopPropagation()}
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              outline: 'none',
+                              color: '#ffffff',
+                              fontWeight: 700,
+                              fontSize: 11,
+                              fontFamily: 'monospace',
+                              letterSpacing: '0.08em',
+                              padding: 0,
+                              minWidth: 40,
+                              width: `${Math.max((scene.location || '').length, 8)}ch`,
+                            }}
+                            placeholder="LOCATION"
+                          />
+                          <span style={{ opacity: 0.4, margin: '0 8px' }}>|</span>
+                          {/* I/E cycle button */}
+                          <button
+                            onClick={() => {
+                              const next = { INT: 'EXT', EXT: 'INT/EXT', 'INT/EXT': 'INT' }
+                              updateScene(scene.id, { intOrExt: next[scene.intOrExt] || 'INT' })
+                            }}
+                            title="Click to cycle INT / EXT / INT/EXT"
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              outline: 'none',
+                              color: '#ffffff',
+                              fontWeight: 700,
+                              fontSize: 11,
+                              fontFamily: 'monospace',
+                              letterSpacing: '0.08em',
+                              padding: 0,
+                              cursor: 'pointer',
+                              opacity: 0.9,
+                            }}
+                          >
+                            {scene.intOrExt || 'INT'}
+                          </button>
+                          <span style={{ opacity: 0.4, margin: '0 6px' }}>·</span>
+                          {/* D/N cycle button */}
+                          <button
+                            onClick={() => {
+                              const next = { DAY: 'NIGHT', NIGHT: 'DAY/NIGHT', 'DAY/NIGHT': 'DAY' }
+                              updateScene(scene.id, { dayNight: next[scene.dayNight] || 'DAY' })
+                            }}
+                            title="Click to cycle DAY / NIGHT / DAY/NIGHT"
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              outline: 'none',
+                              color: '#ffffff',
+                              fontWeight: 700,
+                              fontSize: 11,
+                              fontFamily: 'monospace',
+                              letterSpacing: '0.08em',
+                              padding: 0,
+                              cursor: 'pointer',
+                              opacity: 0.9,
+                            }}
+                          >
+                            {scene.dayNight || 'DAY'}
+                          </button>
+                        </div>
+                        <span style={{ fontWeight: 400, fontSize: 10, opacity: 0.6, letterSpacing: '0.05em', flexShrink: 0 }}>
                           {shots.length} SHOT{shots.length !== 1 ? 'S' : ''}
                           {timeTotal ? ` · ${timeTotal} TOTAL` : ''}
                         </span>
