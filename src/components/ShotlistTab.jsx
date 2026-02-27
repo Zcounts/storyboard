@@ -226,12 +226,18 @@ function EditableCell({ value, onChange, type, options, customOptions, onAddCust
   }
 
   // ── Display mode ──
-  // onMouseDown preventDefault prevents browser text-selection highlight;
-  // onClick still fires and enters edit mode immediately.
+  // onPointerDown is used instead of onClick to enter edit mode as early as
+  // possible in the event sequence, eliminating any visual "blue flash" or
+  // selection state.  stopPropagation prevents the event from bubbling into
+  // any dnd-kit DndContext listener.  preventDefault prevents the browser
+  // from performing text-selection highlighting.
   return (
     <div
-      onMouseDown={e => e.preventDefault()}
-      onClick={() => setEditing(true)}
+      onPointerDown={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        setEditing(true)
+      }}
       style={{
         padding: '0 6px',
         display: 'flex',
@@ -244,6 +250,7 @@ function EditableCell({ value, onChange, type, options, customOptions, onAddCust
         textOverflow: 'ellipsis',
         whiteSpace: 'nowrap',
         userSelect: 'none',
+        WebkitUserSelect: 'none',
         outline: 'none',
       }}
     >
@@ -313,8 +320,11 @@ function SceneLevelDropdownCell({ value, onChange, options, customOptions, onAdd
 
   return (
     <div
-      onMouseDown={e => e.preventDefault()}
-      onClick={() => setEditing(true)}
+      onPointerDown={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        setEditing(true)
+      }}
       style={{
         padding: '0 6px',
         display: 'flex',
@@ -326,6 +336,7 @@ function SceneLevelDropdownCell({ value, onChange, options, customOptions, onAdd
         fontWeight: 600,
         color: isDark ? '#aaa' : '#444',
         userSelect: 'none',
+        WebkitUserSelect: 'none',
         outline: 'none',
       }}
     >
@@ -913,7 +924,9 @@ export default function ShotlistTab() {
 
   const [configPanelOpen, setConfigPanelOpen] = useState(false)
 
-  // Shared sensors for row drag-and-drop (one per scene DndContext)
+  // Shared sensors for row drag-and-drop (one per scene DndContext).
+  // distance: 8 means the pointer must move 8px before drag activates,
+  // so a normal click on any cell will never accidentally start a drag.
   const rowSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   )
@@ -971,16 +984,10 @@ export default function ShotlistTab() {
     reorderShots(sceneId, active.id, over.id)
   }, [reorderShots])
 
-  const handleAddScene = useCallback(() => {
-    const sceneLabel = window.prompt('Scene name:', `SCENE ${scenes.length + 1}`)
-    if (sceneLabel === null) return
-    const rawIntExt = window.prompt('Interior or Exterior? (INT / EXT / INT/EXT):', 'INT')
-    if (rawIntExt === null) return
-    const intOrExt = ['INT', 'EXT', 'INT/EXT'].includes(rawIntExt.toUpperCase().trim())
-      ? rawIntExt.toUpperCase().trim()
-      : 'INT'
-    addScene({ sceneLabel: sceneLabel.toUpperCase().trim(), intOrExt })
-  }, [scenes.length, addScene])
+  // Add Scene — calls the store action directly with no prompts, matching the
+  // Storyboard tab's "Add Scene" button behaviour exactly.  window.prompt()
+  // was previously used here but is unreliable in Electron (can return null
+  // silently), which caused the button to appear to do nothing.
 
   // Close config panel when clicking outside
   useEffect(() => {
@@ -1265,7 +1272,7 @@ export default function ShotlistTab() {
         {/* ── Add Scene button ── */}
         <div style={{ display: 'flex', justifyContent: 'center', padding: '20px 0 8px' }}>
           <button
-            onClick={handleAddScene}
+            onClick={addScene}
             style={{
               display: 'flex',
               alignItems: 'center',

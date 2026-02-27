@@ -48,6 +48,7 @@ export default function PageHeader({ scene, isContinuation = false, pageNum = 1 
             type="text"
             value={scene.sceneLabel}
             onChange={e => set({ sceneLabel: e.target.value })}
+            onPointerDown={e => e.stopPropagation()}
             className="text-xl font-black tracking-tight bg-transparent border-none outline-none p-0"
             style={{ minWidth: 80, width: `${Math.max((scene.sceneLabel || '').length, 6)}ch` }}
             placeholder="SCENE 1"
@@ -57,6 +58,7 @@ export default function PageHeader({ scene, isContinuation = false, pageNum = 1 
             type="text"
             value={scene.location}
             onChange={e => set({ location: e.target.value })}
+            onPointerDown={e => e.stopPropagation()}
             className="text-xl font-black tracking-tight bg-transparent border-none outline-none p-0"
             style={{ minWidth: 60, width: `${Math.max((scene.location || '').length, 4)}ch` }}
             placeholder="LOCATION"
@@ -108,6 +110,7 @@ export default function PageHeader({ scene, isContinuation = false, pageNum = 1 
               value={cam.name}
               onChange={e => updateCamera(idx, 'name', e.target.value)}
               onKeyDown={e => handleCameraKeyDown(e, idx)}
+              onPointerDown={e => e.stopPropagation()}
               className="bg-transparent border-none outline-none text-xs font-semibold text-right p-0"
               style={{ minWidth: 40, width: `${Math.max((cam.name || '').length, 8)}ch` }}
               placeholder="Camera 1"
@@ -118,6 +121,7 @@ export default function PageHeader({ scene, isContinuation = false, pageNum = 1 
               value={cam.body}
               onChange={e => updateCamera(idx, 'body', e.target.value)}
               onKeyDown={e => handleCameraKeyDown(e, idx)}
+              onPointerDown={e => e.stopPropagation()}
               className="bg-transparent border-none outline-none text-xs font-semibold p-0"
               style={{ minWidth: 20, width: `${Math.max((cam.body || '').length, 4)}ch` }}
               placeholder="fx30"
