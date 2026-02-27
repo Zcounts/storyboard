@@ -1,264 +1,483 @@
 import React, { useState } from 'react'
 import html2canvas from 'html2canvas'
 import jsPDF from 'jspdf'
+import useStore from '../store'
 
-// ── Shared utilities ──────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-/**
- * Before capturing a page element, temporarily replace every <input> and
- * <textarea> inside it with a <span>/<pre> that displays the current value.
- * This ensures captured HTML shows typed text, not empty form fields.
- * Returns a restore function to undo the changes.
- */
-function prepareForCapture(el) {
-  const replacements = []
-
-  el.querySelectorAll('input, textarea').forEach(input => {
-    const isTextarea = input.tagName === 'TEXTAREA'
-    const value = input.value ?? ''
-    const cs = window.getComputedStyle(input)
-
-    const span = document.createElement(isTextarea ? 'pre' : 'span')
-    span.textContent = value
-    span.style.fontFamily = cs.fontFamily
-    span.style.fontSize = cs.fontSize
-    span.style.fontWeight = cs.fontWeight
-    span.style.color = cs.color
-    span.style.textAlign = cs.textAlign
-    span.style.lineHeight = cs.lineHeight
-    span.style.letterSpacing = cs.letterSpacing
-    span.style.whiteSpace = isTextarea ? 'pre-wrap' : 'pre'
-    span.style.display = isTextarea ? 'block' : 'inline-block'
-    span.style.verticalAlign = 'middle'
-    span.style.margin = '0'
-    span.style.padding = '0'
-    span.style.border = 'none'
-    span.style.background = 'transparent'
-    span.style.minWidth = cs.minWidth
-    span.style.width = cs.width
-
-    input.parentNode.insertBefore(span, input)
-    const prevDisplay = input.style.display
-    input.style.display = 'none'
-
-    replacements.push({ span, input, prevDisplay })
-  })
-
-  // Hide UI-only controls that shouldn't appear in exports
-  const uiOnly = el.querySelectorAll(
-    '.delete-btn, .drag-handle, .add-shot-btn, .add-scene-btn, .add-scene-row'
-  )
-  const hiddenUi = []
-  uiOnly.forEach(uiEl => {
-    hiddenUi.push({ el: uiEl, prev: uiEl.style.display })
-    uiEl.style.display = 'none'
-  })
-
-  return function restore() {
-    replacements.forEach(({ span, input, prevDisplay }) => {
-      span.remove()
-      input.style.display = prevDisplay
-    })
-    hiddenUi.forEach(({ el: uiEl, prev }) => {
-      uiEl.style.display = prev
-    })
-  }
+function getShotLetterForPrint(index) {
+  if (index < 26) return String.fromCharCode(65 + index)
+  const firstChar = String.fromCharCode(65 + Math.floor(index / 26) - 1)
+  const secondChar = String.fromCharCode(65 + (index % 26))
+  return firstChar + secondChar
 }
 
-/**
- * Collect all CSS text from all accessible stylesheets in the document.
- * Cross-origin stylesheets are silently skipped.
- */
-function collectAllCSS() {
-  let css = ''
-  for (const sheet of document.styleSheets) {
-    try {
-      for (const rule of sheet.cssRules) {
-        css += rule.cssText + '\n'
-      }
-    } catch {
-      // cross-origin or inaccessible sheet — skip
-    }
-  }
-  return css
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
 }
 
-// ── Storyboard PDF: Electron path ─────────────────────────────────────────────
+// Column metadata mirroring ShotlistTab's BUILTIN_COLUMNS (labels + relative widths).
+// Used by buildShotlistPrintHtml to render the correct columns in the correct order.
+const PRINT_BUILTIN_COLUMNS = [
+  { key: 'checked',        label: 'X',                 width: 36  },
+  { key: 'displayId',      label: 'SHOT#',             width: 54  },
+  { key: '__int__',        label: 'I/E',               width: 52  },
+  { key: '__dn__',         label: 'D/N',               width: 52  },
+  { key: 'subject',        label: 'SUBJECT',           width: 130 },
+  { key: 'specs.type',     label: 'ANGLE',             width: 96  },
+  { key: 'focalLength',    label: 'LENS',              width: 64  },
+  { key: 'specs.equip',    label: 'EQUIPMENT',         width: 100 },
+  { key: 'specs.move',     label: 'MOVEMENT',          width: 96  },
+  { key: 'specs.size',     label: 'COVERAGE',          width: 110 },
+  { key: 'notes',          label: 'NOTES',             width: 160 },
+  { key: 'scriptTime',     label: 'SCRIPT TIME',       width: 84  },
+  { key: 'setupTime',      label: 'SETUP TIME',        width: 84  },
+  { key: 'predictedTakes', label: 'PREDIC# OF TAKES',  width: 104 },
+  { key: 'shootTime',      label: 'SHOOT TIME',        width: 84  },
+  { key: 'takeNumber',     label: 'TAKE #',            width: 60  },
+]
+
+function getCellValue(colKey, shot, scene) {
+  if (colKey === 'checked')    return shot.checked ? '\u2713' : ''
+  if (colKey === 'displayId')  return shot.displayId || ''
+  if (colKey === '__int__')    return scene.intOrExt || ''
+  if (colKey === '__dn__')     return scene.dayNight || 'DAY'
+  if (colKey.startsWith('specs.')) return shot.specs?.[colKey.split('.')[1]] ?? ''
+  return shot[colKey] ?? ''
+}
+
+// ── Storyboard print HTML: built from store data ──────────────────────────────
 //
-// Build a single self-contained HTML document that contains ALL storyboard pages.
-// Each page is a .page-document div. A @page CSS rule + break-after: page on each
-// div instructs Chromium's print engine to paginate correctly.
+// Generates a self-contained HTML document with one .page-doc div per logical
+// storyboard page (each scene paginates its shots into groups of columnCount×2).
+// Always uses a hardcoded light theme — white background, black text.
+// No reference to the live app DOM.
 
-function buildStoryboardPrintHtml(pages) {
-  const css = collectAllCSS()
+function buildStoryboardPrintHtml() {
+  const { scenes, columnCount } = useStore.getState()
+  const cols = Math.max(2, Math.min(4, columnCount || 4))
+  const cardsPerPage = cols * 2  // two rows of cards per page
 
-  const printCss = `
-@page {
-  size: A4 landscape;
-  margin: 0;
-}
-html, body {
-  margin: 0;
-  padding: 0;
-  background: #ffffff;
-}
-.page-document {
-  box-shadow: none !important;
-  margin: 0 !important;
-  border-radius: 0 !important;
-  page-break-after: always;
-  break-after: page;
-  max-width: none !important;
-  width: 100% !important;
-}
-.page-document:last-child {
-  page-break-after: avoid;
-  break-after: avoid;
-}
-.add-shot-btn, .add-scene-btn, .add-scene-row, .delete-btn, .drag-handle {
-  display: none !important;
-}
-/* Fix: normalize page-header button font sizes to match surrounding text.
-   Browsers reset button font-size in their UA stylesheet; this override
-   ensures INT/EXT and DAY/NIGHT labels render at the same size as the
-   scene number and location inputs. */
-.page-header button {
-  font-size: 1.25rem !important;
-  line-height: 1.75rem !important;
-  font-weight: 900 !important;
-  font-family: inherit !important;
-  letter-spacing: -0.025em !important;
-  padding: 0 !important;
-  border: none !important;
-  background: transparent !important;
-}
-`
+  const pageDivs = []
 
-  const pageHtmlParts = pages.map(el => {
-    const restore = prepareForCapture(el)
-    try {
-      return el.outerHTML
-    } finally {
-      restore()
-    }
-  })
+  scenes.forEach((scene, sceneIdx) => {
+    const sceneNum = sceneIdx + 1
+    const shots = scene.shots.map((shot, idx) => ({
+      ...shot,
+      displayId: `${sceneNum}${getShotLetterForPrint(idx)}`,
+    }))
 
-  const imgFallbackScript = `
-<script>
-(function() {
-  function patchImgs() {
-    document.querySelectorAll('img').forEach(function(img) {
-      if (img.complete && img.naturalWidth === 0) {
-        img.style.background = '#c0c0c0';
-        img.style.display = 'block';
+    // Group shots into pages; always produce at least one (possibly empty) page.
+    const groups = shots.length > 0
+      ? Array.from(
+          { length: Math.ceil(shots.length / cardsPerPage) },
+          (_, i) => shots.slice(i * cardsPerPage, (i + 1) * cardsPerPage)
+        )
+      : [[]]
+
+    const cameras = scene.cameras || [{ name: 'Camera 1', body: 'fx30' }]
+    const cameraStr = cameras.map(c => `${escapeHtml(c.name)} = ${escapeHtml(c.body)}`).join(' &middot; ')
+    const notesHtml = scene.pageNotes
+      ? `<div class="pg-notes">${escapeHtml(scene.pageNotes)}</div>`
+      : ''
+
+    groups.forEach((pageShots, pageIdx) => {
+      const isContinuation = pageIdx > 0
+      const continuationHtml = isContinuation
+        ? `<span class="continuation">(CONTINUED &mdash; PAGE ${pageIdx + 1})</span>`
+        : ''
+
+      // Build card HTML for each shot in this page
+      const cardHtmlItems = pageShots.map(shot => {
+        const imgHtml = shot.image
+          ? `<img src="${shot.image}" alt="${escapeHtml(shot.displayId)}">`
+          : `<div class="no-img">No image</div>`
+
+        return `<div class="shot-card" style="border-color:${escapeHtml(shot.color || '#4ade80')};">
+  <div class="card-hdr">
+    <span class="sid">${escapeHtml(shot.displayId)} &mdash; ${escapeHtml(shot.cameraName || '')}</span>
+    <span class="fl">${escapeHtml(shot.focalLength || '')}</span>
+  </div>
+  <div class="card-img" style="border-color:${escapeHtml(shot.color || '#4ade80')};">${imgHtml}</div>
+  <table class="specs-tbl">
+    <thead><tr><th>SIZE</th><th>TYPE</th><th>MOVE</th><th>EQUIP</th></tr></thead>
+    <tbody><tr>
+      <td>${escapeHtml(shot.specs?.size || '')}</td>
+      <td>${escapeHtml(shot.specs?.type || '')}</td>
+      <td>${escapeHtml(shot.specs?.move || '')}</td>
+      <td>${escapeHtml(shot.specs?.equip || '')}</td>
+    </tr></tbody>
+  </table>
+  <div class="card-notes">${escapeHtml(shot.notes || '')}</div>
+</div>`
+      })
+
+      // Pad to a complete row if needed (empty card placeholders)
+      while (cardHtmlItems.length % cols !== 0) {
+        cardHtmlItems.push('<div class="shot-card-empty"></div>')
       }
-      img.addEventListener('error', function() {
-        this.style.background = '#c0c0c0';
-        this.style.display = 'block';
-        this.onerror = null;
-      });
-    });
-  }
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', patchImgs);
-  } else {
-    patchImgs();
-  }
-})();
-</script>`
+
+      pageDivs.push(`<div class="page-doc">
+  <div class="page-hdr">
+    <div class="hdr-left">
+      <span class="hdr-title">${escapeHtml(scene.sceneLabel)} | ${escapeHtml(scene.location)} | ${escapeHtml(scene.intOrExt)} &middot; ${escapeHtml(scene.dayNight || 'DAY')}</span>
+      ${continuationHtml}
+    </div>
+    <div class="hdr-right">
+      ${notesHtml}
+      <span class="hdr-cam">${cameraStr}</span>
+    </div>
+  </div>
+  <div class="card-grid cols-${cols}">
+    ${cardHtmlItems.join('\n    ')}
+  </div>
+</div>`)
+    })
+  })
 
   return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
+<title>Storyboard</title>
 <style>
-${css}
-${printCss}
+@page { size: A4 landscape; margin: 8mm 10mm; }
+@media print { html, body { margin: 0; } }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: #fff;
+  color: #111;
+  font-family: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+.page-doc {
+  width: 100%;
+  height: 193mm;
+  display: flex;
+  flex-direction: column;
+  break-after: page;
+  page-break-after: always;
+  overflow: hidden;
+}
+.page-doc:last-child {
+  break-after: avoid;
+  page-break-after: avoid;
+}
+.page-hdr {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 4px 0 5px;
+  border-bottom: 2.5px solid #111;
+  margin-bottom: 5px;
+  flex-shrink: 0;
+  gap: 12px;
+}
+.hdr-left { flex: 1; min-width: 0; }
+.hdr-title {
+  font-size: 13pt;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+}
+.continuation {
+  display: block;
+  font-size: 8pt;
+  font-weight: 400;
+  color: #777;
+  margin-top: 2px;
+}
+.hdr-right { flex-shrink: 0; text-align: right; }
+.hdr-cam {
+  font-size: 8pt;
+  font-weight: 600;
+  font-family: monospace;
+  color: #555;
+  display: block;
+}
+.pg-notes {
+  font-size: 7pt;
+  color: #666;
+  white-space: pre-line;
+  margin-bottom: 3px;
+  text-align: right;
+}
+.card-grid {
+  display: grid;
+  flex: 1;
+  gap: 5px;
+  min-height: 0;
+  grid-template-rows: 1fr 1fr;
+  align-content: stretch;
+}
+.cols-4 { grid-template-columns: repeat(4, 1fr); }
+.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.cols-2 { grid-template-columns: repeat(2, 1fr); }
+.shot-card {
+  display: flex;
+  flex-direction: column;
+  border: 2px solid #4ade80;
+  border-radius: 2px;
+  overflow: hidden;
+  background: #fff;
+  min-height: 0;
+}
+.shot-card-empty {
+  border: 1px dashed #e8e4db;
+  border-radius: 2px;
+}
+.card-hdr {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 2px 5px;
+  background: #f0ede4;
+  flex-shrink: 0;
+}
+.sid { font-size: 7pt; font-weight: 700; font-family: monospace; }
+.fl  { font-size: 7pt; font-weight: 400; font-family: monospace; color: #666; }
+.card-img {
+  flex: 0 0 52%;
+  border-top: 2px solid #4ade80;
+  border-bottom: 1px solid #e0dbd0;
+  overflow: hidden;
+  line-height: 0;
+}
+.card-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.no-img {
+  width: 100%;
+  height: 100%;
+  background: #e8e4db;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 7pt;
+  color: #999;
+  font-family: monospace;
+}
+.specs-tbl {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  flex-shrink: 0;
+}
+.specs-tbl th {
+  background: #f8f7f3;
+  color: #888;
+  font-size: 5.5pt;
+  font-weight: 700;
+  font-family: monospace;
+  letter-spacing: 0.08em;
+  text-align: center;
+  padding: 1px 0;
+  border-bottom: 1px solid #e0dbd0;
+  border-right: 1px solid #e0dbd0;
+}
+.specs-tbl th:last-child { border-right: none; }
+.specs-tbl td {
+  font-size: 6pt;
+  font-family: monospace;
+  text-align: center;
+  padding: 1px 0;
+  border-right: 1px solid #e0dbd0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.specs-tbl td:last-child { border-right: none; }
+.card-notes {
+  flex: 1 1 0;
+  padding: 2px 4px;
+  font-size: 6.5pt;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #333;
+  overflow: hidden;
+  min-height: 0;
+}
 </style>
 </head>
 <body>
-${pageHtmlParts.join('\n')}
-${imgFallbackScript}
+${pageDivs.join('\n')}
 </body>
 </html>`
 }
 
-// ── Shotlist PDF: build print HTML ────────────────────────────────────────────
+// ── Shotlist print HTML: built from store data ────────────────────────────────
 //
-// Captures the entire shotlist container element and produces a print-ready
-// HTML document.  The table's sticky headers become proper thead-group headers
-// that repeat on each printed page.  UI-only elements (drag handles, add-shot
-// buttons, the add-scene button) are hidden via CSS class names added to the
-// ShotlistTab JSX.
+// Generates a self-contained HTML table using the user's current column config.
+// Column widths are percentage-based so the table always fills the full page width.
+// Font size is 9pt so all columns fit comfortably in landscape A4/Letter.
+// Always uses a hardcoded light theme.
 
-function buildShotlistPrintHtml(el) {
-  const css = collectAllCSS()
+function buildShotlistPrintHtml() {
+  const { scenes, shotlistColumnConfig, customColumns } = useStore.getState()
 
-  const printCss = `
-@page {
-  size: A4 landscape;
-  margin: 10mm 8mm;
-}
-html, body {
-  margin: 0;
-  padding: 0;
-  background: #ffffff;
-}
-/* Expand the scrollable container so the full table is visible */
-.shotlist-print-outer {
-  overflow: visible !important;
-  height: auto !important;
-  max-height: none !important;
-  padding: 0 !important;
-  flex: none !important;
-}
-/* Table fills the page width */
-.shotlist-print-outer table {
-  width: 100% !important;
-  min-width: 0 !important;
-}
-/* Sticky positioning does not work in print; remove it so headers flow normally */
-.shotlist-print-outer thead th {
-  position: static !important;
-}
-/* Repeat the header row on every printed page */
-thead {
-  display: table-header-group;
-}
-/* Keep each data row together */
-tr {
-  page-break-inside: avoid;
-  break-inside: avoid;
-}
-/* Hide drag/delete utility column and all interactive-only rows */
-.shotlist-ui-col,
-.shotlist-add-row,
-.shotlist-add-scene {
-  display: none !important;
-}
-`
+  // Build a unified column map (built-in + custom)
+  const allColumnsMap = {}
+  PRINT_BUILTIN_COLUMNS.forEach(col => { allColumnsMap[col.key] = col })
+  ;(customColumns || []).forEach(c => {
+    allColumnsMap[c.key] = { key: c.key, label: c.label, width: 100 }
+  })
 
-  const restore = prepareForCapture(el)
-  let innerHtml
-  try {
-    innerHtml = el.innerHTML
-  } finally {
-    restore()
+  // Resolve visible columns in user-configured order
+  const visibleColumns = (shotlistColumnConfig || [])
+    .filter(c => c.visible)
+    .map(c => allColumnsMap[c.key])
+    .filter(Boolean)
+
+  if (visibleColumns.length === 0) {
+    return '<!DOCTYPE html><html><body><p>No columns configured.</p></body></html>'
   }
 
-  // Wrap with a class so our print CSS can target it without matching anything
-  // in the document's own live DOM.
+  // Percentage widths — proportional to the pixel widths, sum to 100%
+  const totalPx = visibleColumns.reduce((sum, col) => sum + (col.width || 80), 0)
+  const colgroupHtml = visibleColumns
+    .map(col => `<col style="width:${((col.width || 80) / totalPx * 100).toFixed(2)}%">`)
+    .join('\n    ')
+
+  const headerCells = visibleColumns
+    .map(col => {
+      const cls = col.key === 'checked' ? ' class="col-c"' : ''
+      return `<th${cls}>${escapeHtml(col.label)}</th>`
+    })
+    .join('')
+
+  const bodyRows = []
+  scenes.forEach((scene, sceneIdx) => {
+    const sceneNum = sceneIdx + 1
+    const shots = scene.shots.map((shot, idx) => ({
+      ...shot,
+      displayId: `${sceneNum}${getShotLetterForPrint(idx)}`,
+    }))
+
+    const nCols = visibleColumns.length
+    const sceneInfo = [scene.sceneLabel, scene.location, scene.intOrExt, scene.dayNight || 'DAY'].join(' | ')
+    const shotCount = `${shots.length} SHOT${shots.length !== 1 ? 'S' : ''}`
+
+    bodyRows.push(
+      `<tr class="scene-hdr"><td colspan="${nCols}">` +
+      `<div class="scene-hdr-inner">` +
+      `<span>${escapeHtml(sceneInfo)}</span>` +
+      `<span class="shot-count">${escapeHtml(shotCount)}</span>` +
+      `</div></td></tr>`
+    )
+
+    if (shots.length === 0) {
+      bodyRows.push(
+        `<tr><td colspan="${nCols}" style="padding:4px 8px;font-style:italic;color:#aaa;">No shots</td></tr>`
+      )
+    }
+
+    shots.forEach((shot, idx) => {
+      const rowCls = [
+        idx % 2 === 0 ? 'row-even' : 'row-odd',
+        shot.checked ? 'row-chk' : '',
+      ].filter(Boolean).join(' ')
+
+      const cells = visibleColumns.map(col => {
+        const val = getCellValue(col.key, shot, scene)
+        const cls = col.key === 'checked' ? ' class="col-c"' : ''
+        return `<td${cls}>${escapeHtml(String(val))}</td>`
+      }).join('')
+
+      bodyRows.push(`<tr class="${rowCls}">${cells}</tr>`)
+    })
+  })
+
   return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
+<title>Shotlist</title>
 <style>
-${css}
-${printCss}
+@page { size: A4 landscape; margin: 12mm 10mm; }
+@media print { html, body { margin: 0; } }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: #fff;
+  color: #111;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 9pt;
+}
+table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+thead { display: table-header-group; }
+thead th {
+  background: #f0ede4;
+  color: #444;
+  font-size: 7pt;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  text-align: left;
+  padding: 4px 5px;
+  border-bottom: 2px solid #999;
+  border-right: 1px solid #ccc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+thead th:last-child { border-right: none; }
+thead th.col-c { text-align: center; }
+tbody tr { break-inside: avoid; page-break-inside: avoid; }
+tbody td {
+  padding: 3px 5px;
+  border-bottom: 1px solid #e0dbd0;
+  border-right: 1px solid #e0dbd0;
+  vertical-align: middle;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+tbody td:last-child { border-right: none; }
+tbody td.col-c { text-align: center; }
+tr.scene-hdr td {
+  background: #2a2a2a;
+  color: #fff;
+  border: none;
+  padding: 0;
+}
+.scene-hdr-inner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 10px;
+  font-weight: 700;
+  font-size: 10pt;
+  letter-spacing: 0.05em;
+}
+.shot-count {
+  font-weight: 400;
+  font-size: 8pt;
+  opacity: 0.65;
+  letter-spacing: 0.05em;
+}
+tr.row-even td { background: #fff; }
+tr.row-odd  td { background: #faf8f5; }
+tr.row-chk  td { opacity: 0.45; text-decoration: line-through; }
 </style>
 </head>
 <body>
-<div class="shotlist-print-outer">${innerHtml}</div>
+<table>
+  <colgroup>
+    ${colgroupHtml}
+  </colgroup>
+  <thead><tr>${headerCells}</tr></thead>
+  <tbody>
+${bodyRows.join('\n')}
+  </tbody>
+</table>
 </body>
 </html>`
 }
@@ -292,6 +511,65 @@ async function exportViaPrint(htmlContent, projectName, suffix = '') {
 }
 
 // ── Browser fallback path: html2canvas ────────────────────────────────────────
+// Used when running outside Electron (no window.electronAPI.printToPDF).
+
+/**
+ * Temporarily replace every <input> and <textarea> inside el with a
+ * visible <span>/<pre> showing the current value, so html2canvas captures
+ * typed text rather than empty form fields.  Returns a restore function.
+ */
+function prepareForCapture(el) {
+  const replacements = []
+
+  el.querySelectorAll('input, textarea').forEach(input => {
+    const isTextarea = input.tagName === 'TEXTAREA'
+    const value = input.value ?? ''
+    const cs = window.getComputedStyle(input)
+
+    const span = document.createElement(isTextarea ? 'pre' : 'span')
+    span.textContent = value
+    span.style.fontFamily = cs.fontFamily
+    span.style.fontSize = cs.fontSize
+    span.style.fontWeight = cs.fontWeight
+    span.style.color = cs.color
+    span.style.textAlign = cs.textAlign
+    span.style.lineHeight = cs.lineHeight
+    span.style.letterSpacing = cs.letterSpacing
+    span.style.whiteSpace = isTextarea ? 'pre-wrap' : 'pre'
+    span.style.display = isTextarea ? 'block' : 'inline-block'
+    span.style.verticalAlign = 'middle'
+    span.style.margin = '0'
+    span.style.padding = '0'
+    span.style.border = 'none'
+    span.style.background = 'transparent'
+    span.style.minWidth = cs.minWidth
+    span.style.width = cs.width
+
+    input.parentNode.insertBefore(span, input)
+    const prevDisplay = input.style.display
+    input.style.display = 'none'
+    replacements.push({ span, input, prevDisplay })
+  })
+
+  const uiOnly = el.querySelectorAll(
+    '.delete-btn, .drag-handle, .add-shot-btn, .add-scene-btn, .add-scene-row'
+  )
+  const hiddenUi = []
+  uiOnly.forEach(uiEl => {
+    hiddenUi.push({ el: uiEl, prev: uiEl.style.display })
+    uiEl.style.display = 'none'
+  })
+
+  return function restore() {
+    replacements.forEach(({ span, input, prevDisplay }) => {
+      span.remove()
+      input.style.display = prevDisplay
+    })
+    hiddenUi.forEach(({ el: uiEl, prev }) => {
+      uiEl.style.display = prev
+    })
+  }
+}
 
 async function captureElementWithTimeout(el, scale = 1.5, timeoutMs = 60000) {
   const restore = prepareForCapture(el)
@@ -375,21 +653,21 @@ async function exportPagesBrowser(pages) {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
- * Export the storyboard grid pages as a PDF.
- * pageRefs.current is a flat array of .page-document elements.
+ * Export the storyboard as a PDF.
+ * Electron path: builds fresh HTML from store data, passes to printToPDF.
+ * Browser fallback: html2canvas captures the live .page-document DOM elements.
  */
 export async function exportStoryboardPDF(pageRefs, projectName) {
-  const pages = (pageRefs?.current || []).filter(Boolean)
-  if (pages.length === 0) {
-    console.warn('[PDF Export] No storyboard page elements found — aborting.')
-    return
-  }
-
   try {
     if (window.electronAPI?.printToPDF) {
-      const html = buildStoryboardPrintHtml(pages)
+      const html = buildStoryboardPrintHtml()
       await exportViaPrint(html, projectName, 'storyboard')
     } else {
+      const pages = (pageRefs?.current || []).filter(Boolean)
+      if (pages.length === 0) {
+        console.warn('[PDF Export] No storyboard page elements found — aborting.')
+        return
+      }
       await exportPagesBrowser(pages)
     }
   } catch (err) {
@@ -399,24 +677,22 @@ export async function exportStoryboardPDF(pageRefs, projectName) {
 }
 
 /**
- * Export the shotlist table as a PDF.
- * shotlistRef.current is the ShotlistTab root container element.
+ * Export the shotlist as a PDF.
+ * Electron path: builds fresh HTML from store data, passes to printToPDF.
+ * Browser fallback: html2canvas captures the live shotlist container element.
  */
 export async function exportShotlistPDF(shotlistRef, projectName) {
-  const el = shotlistRef?.current
-  if (!el) {
-    console.warn('[PDF Export] Shotlist element not found — aborting.')
-    return
-  }
-
   try {
     if (window.electronAPI?.printToPDF) {
-      const html = buildShotlistPrintHtml(el)
+      const html = buildShotlistPrintHtml()
       await exportViaPrint(html, projectName, 'shotlist')
     } else {
-      // Fallback: capture the shotlist container as a single image
-      const pages = [el]
-      await exportPagesBrowser(pages)
+      const el = shotlistRef?.current
+      if (!el) {
+        console.warn('[PDF Export] Shotlist element not found — aborting.')
+        return
+      }
+      await exportPagesBrowser([el])
     }
   } catch (err) {
     console.error('[PDF Export] Shotlist export failed:', err)
@@ -536,7 +812,6 @@ export default function ExportModal({ isOpen, onClose, pageRefs, shotlistRef, ac
           Export your {tabLabel.toLowerCase()} as a high-resolution document.
         </p>
 
-        {/* Context-aware primary export */}
         <div className="flex gap-3 mb-3">
           <button
             onClick={() => handleExportPDF()}
@@ -561,7 +836,6 @@ export default function ExportModal({ isOpen, onClose, pageRefs, shotlistRef, ac
           )}
         </div>
 
-        {/* Quick links to the other export type */}
         <div style={{
           borderTop: '1px solid #e5e7eb',
           paddingTop: 12,

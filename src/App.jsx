@@ -153,6 +153,41 @@ export default function App() {
   }, 0)
   pageRefs.current = pageRefs.current.slice(0, totalPages)
 
+  // ── DIAGNOSTIC: first-click input bug ──────────────────────────────────────
+  // Logs every pointer/mouse/focus/click event on inputs and editable cells so
+  // the root cause of the first-click-not-focusable bug can be identified from
+  // the DevTools console. Check 'defaultPrevented: true' to find the culprit.
+  // Remove this effect once the bug has been confirmed fixed.
+  useEffect(() => {
+    const log = (e) => {
+      const t = e.target
+      if (
+        t.tagName === 'INPUT' ||
+        t.tagName === 'TEXTAREA' ||
+        t.closest('td') ||
+        t.closest('.specs-table')
+      ) {
+        console.log(
+          `[FirstClick] ${e.type}`,
+          `tag=${t.tagName}`,
+          `id=${t.id || '(none)'}`,
+          `class=${t.className || '(none)'}`,
+          `defaultPrevented=${e.defaultPrevented}`
+        )
+      }
+    }
+    document.addEventListener('pointerdown', log, true)
+    document.addEventListener('mousedown',   log, true)
+    document.addEventListener('focus',       log, true)
+    document.addEventListener('click',       log, true)
+    return () => {
+      document.removeEventListener('pointerdown', log, true)
+      document.removeEventListener('mousedown',   log, true)
+      document.removeEventListener('focus',       log, true)
+      document.removeEventListener('click',       log, true)
+    }
+  }, [])
+
   // Auto-save every 60 seconds
   useEffect(() => {
     if (!autoSave) return
