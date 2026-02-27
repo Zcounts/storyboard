@@ -2,10 +2,12 @@ import React, { useState } from 'react'
 import html2canvas from 'html2canvas'
 import jsPDF from 'jspdf'
 
+// ── Shared utilities ──────────────────────────────────────────────────────────
+
 /**
- * Before calling html2canvas, temporarily replace every <input> and <textarea>
- * inside the element with a <span>/<pre> displaying its current value.
- * This fixes html2canvas not rendering input text correctly.
+ * Before capturing a page element, temporarily replace every <input> and
+ * <textarea> inside it with a <span>/<pre> that displays the current value.
+ * This ensures captured HTML shows typed text, not empty form fields.
  * Returns a restore function to undo the changes.
  */
 function prepareForCapture(el) {
@@ -36,21 +38,20 @@ function prepareForCapture(el) {
     span.style.width = cs.width
 
     input.parentNode.insertBefore(span, input)
-    // Hide original but keep in DOM so layout doesn't shift
     const prevDisplay = input.style.display
     input.style.display = 'none'
 
     replacements.push({ span, input, prevDisplay })
   })
 
-  // Also hide UI-only controls (delete btn, drag handle, add-shot btn)
+  // Hide UI-only controls that shouldn't appear in exports
   const uiOnly = el.querySelectorAll(
     '.delete-btn, .drag-handle, .add-shot-btn, .add-scene-btn, .add-scene-row'
   )
   const hiddenUi = []
-  uiOnly.forEach(el => {
-    hiddenUi.push({ el, prev: el.style.display })
-    el.style.display = 'none'
+  uiOnly.forEach(uiEl => {
+    hiddenUi.push({ el: uiEl, prev: uiEl.style.display })
+    uiEl.style.display = 'none'
   })
 
   return function restore() {
@@ -58,8 +59,8 @@ function prepareForCapture(el) {
       span.remove()
       input.style.display = prevDisplay
     })
-    hiddenUi.forEach(({ el, prev }) => {
-      el.style.display = prev
+    hiddenUi.forEach(({ el: uiEl, prev }) => {
+      uiEl.style.display = prev
     })
   }
 }
@@ -82,31 +83,128 @@ function collectAllCSS() {
   return css
 }
 
-/**
- * Build a self-contained HTML document string for a page element.
- * All styles from the current document are inlined, and the element's
- * outerHTML is used as the body content.
- */
-function buildPageHtml(el, css) {
-  const width = el.offsetWidth
-  const height = el.offsetHeight
-  return {
-    fullHtml: `<!DOCTYPE html>
+// ── Electron path: webContents.printToPDF() ───────────────────────────────────
+//
+// Build a single self-contained HTML document that contains ALL pages.  Each
+// page is a .page-document div.  A @page CSS rule + break-after: page on each
+// div instructs Chromium's print engine to paginate correctly.  Chromium handles
+// fonts, images, and layout natively — no canvas capture, no memory limits.
+
+function buildPrintHtml(pages) {
+  const css = collectAllCSS()
+
+  // Print-specific overrides: A4 landscape pages, no margins, page breaks
+  // between each .page-document, hide UI-only chrome elements.
+  const printCss = `
+@page {
+  size: A4 landscape;
+  margin: 0;
+}
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #ffffff;
+}
+.page-document {
+  box-shadow: none !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  page-break-after: always;
+  break-after: page;
+  max-width: none !important;
+  width: 100% !important;
+}
+.page-document:last-child {
+  page-break-after: avoid;
+  break-after: avoid;
+}
+.add-shot-btn, .add-scene-btn, .add-scene-row, .delete-btn, .drag-handle {
+  display: none !important;
+}
+`
+
+  // Build outerHTML for each page with inputs replaced by text spans
+  const pageHtmlParts = pages.map(el => {
+    const restore = prepareForCapture(el)
+    try {
+      return el.outerHTML
+    } finally {
+      restore()
+    }
+  })
+
+  // Inline a small script to replace failed images with a grey rectangle.
+  // Images stored as base64 data URIs should never fail, but this guards
+  // against any external src references.
+  const imgFallbackScript = `
+<script>
+(function() {
+  function patchImgs() {
+    document.querySelectorAll('img').forEach(function(img) {
+      if (img.complete && img.naturalWidth === 0) {
+        img.style.background = '#c0c0c0';
+        img.style.display = 'block';
+      }
+      img.addEventListener('error', function() {
+        this.style.background = '#c0c0c0';
+        this.style.display = 'block';
+        this.onerror = null;
+      });
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', patchImgs);
+  } else {
+    patchImgs();
+  }
+})();
+</script>`
+
+  return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
 <style>
-*{box-sizing:border-box}
-html,body{margin:0;padding:0;width:${width}px;height:${height}px;overflow:hidden;background:#fff}
 ${css}
+${printCss}
 </style>
 </head>
-<body>${el.outerHTML}</body>
-</html>`,
-    width,
-    height,
-  }
+<body>
+${pageHtmlParts.join('\n')}
+${imgFallbackScript}
+</body>
+</html>`
 }
+
+async function exportToPDFPrint(pages, projectName) {
+  console.log(`[PDF Export] Starting printToPDF path — ${pages.length} page(s)`)
+
+  const htmlContent = buildPrintHtml(pages)
+  console.log(`[PDF Export] Print HTML built — ${(htmlContent.length / 1024).toFixed(0)}KB`)
+
+  let result
+  try {
+    result = await window.electronAPI.printToPDF(htmlContent)
+  } catch (ipcErr) {
+    throw new Error(`IPC error during printToPDF: ${ipcErr.message || ipcErr}`)
+  }
+
+  if (!result.success) {
+    throw new Error(result.error || 'printToPDF returned failure')
+  }
+
+  console.log(`[PDF Export] PDF buffer received — ${(result.pdfData.length / 1024).toFixed(0)}KB`)
+
+  const buffer = new Uint8Array(result.pdfData)
+  const fileName = projectName
+    ? `${projectName.replace(/[^a-z0-9]/gi, '_')}.pdf`
+    : 'shotlist.pdf'
+
+  await window.electronAPI.savePDF(fileName, buffer.buffer)
+  console.log('[PDF Export] Saved successfully.')
+}
+
+// ── Browser fallback path: html2canvas ────────────────────────────────────────
 
 /**
  * Wrap html2canvas with a hard timeout so a single broken page can't
@@ -124,7 +222,6 @@ async function captureElementWithTimeout(el, scale = 1.5, timeoutMs = 60000) {
         logging: false,
         imageTimeout: 15000,
         onclone: (_clonedDoc, clonedEl) => {
-          // Ensure the cloned element is visible and full-size
           clonedEl.style.overflow = 'visible'
         },
       }),
@@ -136,116 +233,6 @@ async function captureElementWithTimeout(el, scale = 1.5, timeoutMs = 60000) {
     restore()
   }
 }
-
-// ── Electron path: each page is rendered in a hidden BrowserWindow ─────────
-
-async function exportToPDFElectron(pages, projectName) {
-  console.log(`[PDF Export] Starting Electron path — ${pages.length} page(s)`)
-
-  // Collect all CSS once (shared across pages)
-  const css = collectAllCSS()
-
-  // Build per-page HTML payloads
-  const pageData = []
-  for (let i = 0; i < pages.length; i++) {
-    const el = pages[i]
-    const restore = prepareForCapture(el)
-    try {
-      const { fullHtml, width, height } = buildPageHtml(el, css)
-      pageData.push({ fullHtml, width, height })
-      console.log(`[PDF Export] Page ${i + 1}: ${width}×${height}px, HTML size: ${(fullHtml.length / 1024).toFixed(0)}KB`)
-    } finally {
-      restore()
-    }
-  }
-
-  // Send all pages to main process for rendering
-  console.log('[PDF Export] Sending pages to main process for rendering…')
-  let results
-  try {
-    results = await window.electronAPI.exportPDFPages(pageData)
-  } catch (ipcErr) {
-    console.error('[PDF Export] IPC call failed:', ipcErr)
-    throw new Error(`IPC error: ${ipcErr.message || ipcErr}`)
-  }
-
-  console.log(`[PDF Export] Received ${results.length} result(s) from main process`)
-
-  // Assemble PDF from PNG buffers
-  let pdf = null
-  let rendered = 0
-
-  for (let i = 0; i < results.length; i++) {
-    const result = results[i]
-    if (!result) {
-      console.warn(`[PDF Export] Page ${i + 1} was skipped (render failed in main process)`)
-      continue
-    }
-
-    const { pngData, width, height, error } = result
-    if (error) {
-      console.warn(`[PDF Export] Page ${i + 1} reported error: ${error}`)
-    }
-    if (!pngData) {
-      console.warn(`[PDF Export] Page ${i + 1} returned no image data — skipping`)
-      continue
-    }
-
-    try {
-      // pngData is an array of bytes (Uint8Array serialised over IPC)
-      const uint8 = new Uint8Array(pngData)
-      const blob = new Blob([uint8], { type: 'image/png' })
-      const url = URL.createObjectURL(blob)
-
-      const imgData = await new Promise((resolve, reject) => {
-        const img = new Image()
-        img.onload = () => {
-          const canvas = document.createElement('canvas')
-          canvas.width = width
-          canvas.height = height
-          const ctx = canvas.getContext('2d')
-          ctx.drawImage(img, 0, 0, width, height)
-          resolve(canvas.toDataURL('image/jpeg', 0.92))
-          URL.revokeObjectURL(url)
-        }
-        img.onerror = () => {
-          URL.revokeObjectURL(url)
-          reject(new Error(`Failed to decode PNG for page ${i + 1}`))
-        }
-        img.src = url
-      })
-
-      if (!pdf) {
-        pdf = new jsPDF({
-          orientation: width > height ? 'landscape' : 'portrait',
-          unit: 'px',
-          format: [width, height],
-          hotfixes: ['px_scaling'],
-        })
-      } else {
-        pdf.addPage([width, height], width > height ? 'landscape' : 'portrait')
-      }
-
-      pdf.addImage(imgData, 'JPEG', 0, 0, width, height)
-      rendered++
-      console.log(`[PDF Export] Page ${i + 1} added to PDF`)
-    } catch (pageErr) {
-      console.error(`[PDF Export] Failed to add page ${i + 1} to PDF:`, pageErr)
-    }
-  }
-
-  if (!pdf || rendered === 0) {
-    throw new Error('No pages could be rendered. Check the console for per-page errors.')
-  }
-
-  console.log(`[PDF Export] ${rendered}/${pages.length} page(s) rendered — saving…`)
-  const arrayBuffer = pdf.output('arraybuffer')
-  const fileName = projectName ? `${projectName.replace(/[^a-z0-9]/gi, '_')}.pdf` : 'shotlist.pdf'
-  await window.electronAPI.savePDF(fileName, arrayBuffer)
-  console.log('[PDF Export] Saved successfully.')
-}
-
-// ── Browser fallback path: html2canvas ────────────────────────────────────
 
 async function exportToPDFBrowser(pages) {
   console.log(`[PDF Export] Starting browser/html2canvas path — ${pages.length} page(s)`)
@@ -267,7 +254,6 @@ async function exportToPDFBrowser(pages) {
           canvas = await captureElementWithTimeout(pages[i], scale, 60000)
         } catch (retryErr) {
           console.error(`[PDF Export] Page ${i + 1} failed on retry:`, retryErr.message)
-          console.warn(`[PDF Export] Skipping page ${i + 1} and continuing…`)
           continue
         }
       } else {
@@ -303,7 +289,7 @@ async function exportToPDFBrowser(pages) {
   console.log('[PDF Export] Saved via browser download.')
 }
 
-// ── Public API ─────────────────────────────────────────────────────────────
+// ── Public API ────────────────────────────────────────────────────────────────
 
 export async function exportToPDF(pageRefs, projectName) {
   const pages = (pageRefs?.current || []).filter(Boolean)
@@ -313,15 +299,16 @@ export async function exportToPDF(pageRefs, projectName) {
   }
 
   try {
-    if (window.electronAPI?.exportPDFPages) {
-      await exportToPDFElectron(pages, projectName)
+    if (window.electronAPI?.printToPDF) {
+      // Electron: use webContents.printToPDF() — reliable, no canvas limits
+      await exportToPDFPrint(pages, projectName)
     } else {
+      // Browser / dev environment: html2canvas fallback
       await exportToPDFBrowser(pages)
     }
   } catch (err) {
     console.error('[PDF Export] Export failed:', err)
 
-    // Build a helpful user-facing message that exposes the real cause
     const raw = err?.message || String(err) || 'Unknown error'
     let msg = `PDF export failed: ${raw}`
 
@@ -329,8 +316,6 @@ export async function exportToPDF(pageRefs, projectName) {
       msg += '\n\nTip: try removing or resizing large images attached to shots.'
     } else if (/timeout/i.test(raw)) {
       msg += '\n\nTip: the page took too long to render — try exporting fewer scenes at once.'
-    } else if (/canvas/i.test(raw)) {
-      msg += '\n\nTip: the page is too large to capture. Try reducing image sizes.'
     } else if (/ipc|main process/i.test(raw)) {
       msg += '\n\nThe Electron main process could not render the page. Check the developer console for details.'
     }

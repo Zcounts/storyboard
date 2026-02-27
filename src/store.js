@@ -34,7 +34,7 @@ export const DEFAULT_COLUMN_CONFIG = [
 const DEFAULT_COLOR = '#4ade80'
 
 let shotCounter = 0
-let sceneCounter = 1
+let sceneIdCounter = 0
 
 function createShot(overrides = {}) {
   shotCounter++
@@ -64,12 +64,10 @@ function createShot(overrides = {}) {
 }
 
 function createScene(overrides = {}) {
-  const id = `scene_${Date.now()}_${sceneCounter}`
-  const num = sceneCounter
-  sceneCounter++
+  sceneIdCounter++
   return {
-    id,
-    sceneLabel: `SCENE ${num}`,
+    id: `scene_${Date.now()}_${sceneIdCounter}`,
+    sceneLabel: 'SCENE',
     location: 'LOCATION',
     intOrExt: 'INT',
     dayNight: 'DAY',
@@ -87,11 +85,6 @@ function getShotLetter(index) {
   return firstChar + secondChar
 }
 
-function getSceneNumber(sceneLabel) {
-  const match = sceneLabel.match(/\d+/)
-  return match ? parseInt(match[0]) : 1
-}
-
 const initialScene = createScene({
   id: 'scene_1',
   sceneLabel: 'SCENE 1',
@@ -99,6 +92,8 @@ const initialScene = createScene({
   intOrExt: 'INT',
   cameras: [{ name: 'Camera 1', body: 'fx30' }],
 })
+// Reset counter after initial scene so user-added scenes don't conflict
+sceneIdCounter = 0
 
 const useStore = create((set, get) => ({
   // Project metadata
@@ -133,11 +128,16 @@ const useStore = create((set, get) => ({
 
   getScene: (sceneId) => get().scenes.find(s => s.id === sceneId),
 
-  // Returns shots for a scene with computed displayIds
+  // Returns shots for a scene with computed displayIds.
+  // Scene number is always derived from the scene's position in the scenes array
+  // (index 0 → Scene 1, index 1 → Scene 2, etc.) — never from the sceneLabel text,
+  // which is editable and can be out of sync.
   getShotsForScene: (sceneId) => {
-    const scene = get().scenes.find(s => s.id === sceneId)
-    if (!scene) return []
-    const sceneNum = getSceneNumber(scene.sceneLabel)
+    const scenes = get().scenes
+    const sceneIndex = scenes.findIndex(s => s.id === sceneId)
+    if (sceneIndex === -1) return []
+    const scene = scenes[sceneIndex]
+    const sceneNum = sceneIndex + 1
     return scene.shots.map((shot, index) => ({
       ...shot,
       displayId: `${sceneNum}${getShotLetter(index)}`,
@@ -150,7 +150,9 @@ const useStore = create((set, get) => ({
   // ── Scene actions ────────────────────────────────────────────────────
 
   addScene: (overrides = {}) => {
-    const scene = createScene(overrides)
+    const currentScenes = get().scenes
+    const sceneNum = currentScenes.length + 1
+    const scene = createScene({ sceneLabel: `SCENE ${sceneNum}`, ...overrides })
     set(state => ({ scenes: [...state.scenes, scene] }))
     get()._scheduleAutoSave()
     return scene.id
@@ -578,7 +580,7 @@ const useStore = create((set, get) => ({
   newProject: () => {
     const name = prompt('Project name:', 'Untitled Shotlist')
     if (name === null) return
-    const scene = createScene({ sceneLabel: 'SCENE 1', location: 'LOCATION' })
+    const scene = createScene({ id: 'scene_1', sceneLabel: 'SCENE 1', location: 'LOCATION' })
     set({
       projectName: name,
       scenes: [scene],

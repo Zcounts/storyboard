@@ -24,12 +24,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('dialog:save-png', { defaultName, base64 }),
 
   /**
-   * Render each page HTML in a hidden BrowserWindow and return PNG
-   * screenshots.  Used by the PDF export path in ExportModal.jsx.
+   * Export PDF using Chromium's native print engine (webContents.printToPDF).
+   * The renderer builds a single self-contained HTML document with all pages
+   * and passes it here.  The main process loads it in a hidden BrowserWindow
+   * and calls printToPDF({ landscape: true, pageSize: 'A4' }).
    *
-   * pageData: Array<{ fullHtml: string, width: number, height: number }>
-   * Returns:  Array<{ pngData: number[]|null, width, height, error?: string }>
+   * htmlContent: string — complete self-contained HTML document
+   * Returns: { success: true, pdfData: number[] } | { success: false, error: string }
    */
-  exportPDFPages: (pageData) =>
-    ipcRenderer.invoke('dialog:export-pdf-pages', pageData),
+  printToPDF: (htmlContent) =>
+    ipcRenderer.invoke('dialog:print-to-pdf', { htmlContent }),
 })

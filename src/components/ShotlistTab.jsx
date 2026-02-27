@@ -76,26 +76,68 @@ function sumScriptTimes(shots) {
 }
 
 // ── EditableCell ──────────────────────────────────────────────────────────────
-// customOptions: extra options to merge with the built-in options list
-// onAddCustomOption: callback(value) called when user commits a value not in options
+// Always renders an <input> or <textarea> — never toggles between a display div
+// and an edit input.  The input is styled to look like plain table text when
+// inactive and like a focused input when active.  This eliminates the entire
+// class of "first click selects, second click types" bugs because there is no
+// display/edit toggle — the input is always there.
 function EditableCell({ value, onChange, type, options, customOptions, onAddCustomOption, isChecked, isDark }) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(value ?? '')
-  const inputRef = useRef(null)
   const datalistId = useId()
+  const [localValue, setLocalValue] = useState(value ?? '')
+  const [isFocused, setIsFocused] = useState(false)
+  // Ref used to suppress onChange when user presses Escape to cancel an edit.
+  const escapedRef = useRef(false)
 
-  useEffect(() => { if (!editing) setDraft(value ?? '') }, [value, editing])
-  useEffect(() => { if (editing && inputRef.current) inputRef.current.focus() }, [editing])
+  // Keep localValue in sync with the external value whenever the cell is not focused.
+  useEffect(() => {
+    if (!isFocused) setLocalValue(value ?? '')
+  }, [value, isFocused])
 
-  const commit = useCallback(() => {
-    setEditing(false)
-    if (draft !== (value ?? '')) onChange(draft)
-  }, [draft, value, onChange])
+  const handleFocus = () => {
+    setIsFocused(true)
+    escapedRef.current = false
+  }
 
-  const handleKeyDown = useCallback((e) => {
+  const handleBlur = (e) => {
+    if (!escapedRef.current) {
+      const newVal = e.target.value
+      if (type === 'dropdown') {
+        const allOpts = [...new Set([...(options || []), ...(customOptions || [])])]
+        const trimmed = newVal.trim()
+        if (trimmed && !allOpts.includes(trimmed) && onAddCustomOption) {
+          onAddCustomOption(trimmed)
+        }
+      }
+      if (newVal !== (value ?? '')) onChange(newVal)
+    }
+    escapedRef.current = false
+    setIsFocused(false)
+  }
+
+  const handleKeyDown = (e) => {
     if (e.key === 'Enter') e.target.blur()
-    if (e.key === 'Escape') { setDraft(value ?? ''); setEditing(false) }
-  }, [value])
+    if (e.key === 'Escape') {
+      escapedRef.current = true
+      e.target.blur()
+    }
+  }
+
+  const inputStyle = {
+    width: '100%',
+    height: '100%',
+    border: 'none',
+    background: isFocused ? (isDark ? '#1e3a5f' : '#eff6ff') : 'transparent',
+    color: (localValue || value)
+      ? (isDark ? '#e0e0e0' : '#1a1a1a')
+      : (isDark ? '#555' : '#ccc'),
+    fontSize: 11,
+    fontFamily: 'inherit',
+    padding: '0 6px',
+    outline: 'none',
+    cursor: isFocused ? 'text' : 'default',
+    boxSizing: 'border-box',
+    display: 'block',
+  }
 
   // ── Checkbox ──
   if (type === 'checkbox') {
@@ -145,170 +187,20 @@ function EditableCell({ value, onChange, type, options, customOptions, onAddCust
     )
   }
 
-  // ── Editing mode ──
-  const editStyle = {
-    width: '100%',
-    height: '100%',
-    border: 'none',
-    background: isDark ? '#1e3a5f' : '#eff6ff',
-    color: isDark ? '#e0e0e0' : '#1a1a1a',
-    fontSize: 11,
-    fontFamily: 'inherit',
-    padding: '0 6px',
-    outline: 'none',
-  }
-
-  if (editing) {
-    // ── Dropdown via datalist — allows free-text custom values ──
-    if (type === 'dropdown') {
-      const allOpts = [...new Set([...(options || []), ...(customOptions || [])])]
-      return (
-        <>
-          <input
-            ref={inputRef}
-            type="text"
-            value={draft}
-            list={datalistId}
-            onChange={e => setDraft(e.target.value)}
-            onBlur={() => {
-              const trimmed = draft.trim()
-              if (trimmed && !allOpts.includes(trimmed) && onAddCustomOption) {
-                onAddCustomOption(trimmed)
-              }
-              commit()
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') e.target.blur()
-              if (e.key === 'Escape') { setDraft(value ?? ''); setEditing(false) }
-            }}
-            style={{ ...editStyle, padding: '0 4px' }}
-            autoComplete="off"
-          />
-          <datalist id={datalistId}>
-            {allOpts.map(o => <option key={o} value={o} />)}
-          </datalist>
-        </>
-      )
-    }
-
-    if (type === 'textarea') {
-      return (
-        <textarea
-          ref={inputRef}
-          value={draft}
-          onChange={e => setDraft(e.target.value)}
-          onBlur={commit}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') { setDraft(value ?? ''); setEditing(false) }
-          }}
-          style={{
-            ...editStyle,
-            padding: '2px 6px',
-            resize: 'none',
-            overflow: 'auto',
-            lineHeight: 1.4,
-            verticalAlign: 'top',
-          }}
-        />
-      )
-    }
-
-    return (
-      <input
-        ref={inputRef}
-        value={draft}
-        onChange={e => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={handleKeyDown}
-        style={editStyle}
-      />
-    )
-  }
-
-  // ── Display mode ──
-  // onPointerDown is used instead of onClick to enter edit mode as early as
-  // possible in the event sequence, eliminating any visual "blue flash" or
-  // selection state.  stopPropagation prevents the event from bubbling into
-  // any dnd-kit DndContext listener.  preventDefault prevents the browser
-  // from performing text-selection highlighting.
-  return (
-    <div
-      onPointerDown={(e) => {
-        e.preventDefault()
-        e.stopPropagation()
-        setEditing(true)
-      }}
-      style={{
-        padding: '0 6px',
-        display: 'flex',
-        alignItems: 'center',
-        height: '100%',
-        cursor: type === 'textarea' ? 'text' : 'default',
-        fontSize: 11,
-        color: value ? (isDark ? '#e0e0e0' : '#1a1a1a') : (isDark ? '#3a3a3a' : '#ccc'),
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
-        userSelect: 'none',
-        WebkitUserSelect: 'none',
-        outline: 'none',
-      }}
-    >
-      {value || '—'}
-    </div>
-  )
-}
-
-// ── SceneLevelDropdownCell — for scene-wide I/E and D/N ───────────────────────
-// Clicking edits the value for the entire scene (not per-shot).
-function SceneLevelDropdownCell({ value, onChange, options, customOptions, onAddCustomOption, isDark }) {
-  const [editing, setEditing] = useState(false)
-  const selectRef = useRef(null)
-  const datalistId = useId()
-
-  useEffect(() => { if (editing && selectRef.current) selectRef.current.focus() }, [editing])
-
-  const allOpts = [...new Set([...(options || []), ...(customOptions || [])])]
-
-  if (editing) {
+  // ── Dropdown via datalist ──
+  if (type === 'dropdown') {
+    const allOpts = [...new Set([...(options || []), ...(customOptions || [])])]
     return (
       <>
         <input
-          ref={selectRef}
           type="text"
-          value={value}
+          value={localValue}
           list={datalistId}
-          onChange={e => {
-            const newVal = e.target.value
-            if (allOpts.includes(newVal)) {
-              setEditing(false)
-              if (newVal !== value) onChange(newVal)
-            }
-          }}
-          onBlur={e => {
-            const v = e.target.value.trim()
-            if (v && !allOpts.includes(v) && onAddCustomOption) {
-              onAddCustomOption(v)
-            }
-            setEditing(false)
-            if (v && v !== value) onChange(v)
-          }}
-          onKeyDown={e => {
-            if (e.key === 'Enter') e.target.blur()
-            if (e.key === 'Escape') setEditing(false)
-          }}
-          style={{
-            width: '100%',
-            height: '100%',
-            border: 'none',
-            background: isDark ? '#1e3a5f' : '#eff6ff',
-            color: isDark ? '#e0e0e0' : '#1a1a1a',
-            fontSize: 11,
-            fontFamily: 'monospace',
-            fontWeight: 600,
-            padding: '0 4px',
-            outline: 'none',
-          }}
+          onChange={e => setLocalValue(e.target.value)}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+          onKeyDown={handleKeyDown}
+          style={{ ...inputStyle, padding: '0 4px' }}
           autoComplete="off"
         />
         <datalist id={datalistId}>
@@ -318,30 +210,114 @@ function SceneLevelDropdownCell({ value, onChange, options, customOptions, onAdd
     )
   }
 
+  // ── Textarea ──
+  if (type === 'textarea') {
+    return (
+      <textarea
+        value={localValue}
+        onChange={e => setLocalValue(e.target.value)}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            escapedRef.current = true
+            e.target.blur()
+          }
+        }}
+        style={{
+          ...inputStyle,
+          padding: '2px 6px',
+          resize: 'none',
+          overflow: 'auto',
+          lineHeight: 1.4,
+          verticalAlign: 'top',
+        }}
+      />
+    )
+  }
+
+  // ── Text (default) ──
   return (
-    <div
-      onPointerDown={(e) => {
-        e.preventDefault()
-        e.stopPropagation()
-        setEditing(true)
-      }}
-      style={{
-        padding: '0 6px',
-        display: 'flex',
-        alignItems: 'center',
-        height: '100%',
-        cursor: 'default',
-        fontSize: 11,
-        fontFamily: 'monospace',
-        fontWeight: 600,
-        color: isDark ? '#aaa' : '#444',
-        userSelect: 'none',
-        WebkitUserSelect: 'none',
-        outline: 'none',
-      }}
-    >
-      {value || '—'}
-    </div>
+    <input
+      type="text"
+      value={localValue}
+      onChange={e => setLocalValue(e.target.value)}
+      onFocus={handleFocus}
+      onBlur={handleBlur}
+      onKeyDown={handleKeyDown}
+      style={inputStyle}
+    />
+  )
+}
+
+// ── SceneLevelDropdownCell — for scene-wide I/E and D/N ───────────────────────
+// Always renders an input (same pattern as EditableCell) — no display/edit toggle.
+function SceneLevelDropdownCell({ value, onChange, options, customOptions, onAddCustomOption, isDark }) {
+  const datalistId = useId()
+  const [localValue, setLocalValue] = useState(value ?? '')
+  const [isFocused, setIsFocused] = useState(false)
+  const escapedRef = useRef(false)
+
+  useEffect(() => {
+    if (!isFocused) setLocalValue(value ?? '')
+  }, [value, isFocused])
+
+  const allOpts = [...new Set([...(options || []), ...(customOptions || [])])]
+
+  const handleFocus = () => {
+    setIsFocused(true)
+    escapedRef.current = false
+  }
+
+  const handleBlur = (e) => {
+    if (!escapedRef.current) {
+      const v = e.target.value.trim()
+      if (v && !allOpts.includes(v) && onAddCustomOption) {
+        onAddCustomOption(v)
+      }
+      if (v && v !== value) onChange(v)
+    }
+    escapedRef.current = false
+    setIsFocused(false)
+  }
+
+  return (
+    <>
+      <input
+        type="text"
+        value={localValue}
+        list={datalistId}
+        onChange={e => setLocalValue(e.target.value)}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        onKeyDown={e => {
+          if (e.key === 'Enter') e.target.blur()
+          if (e.key === 'Escape') {
+            escapedRef.current = true
+            e.target.blur()
+          }
+        }}
+        style={{
+          width: '100%',
+          height: '100%',
+          border: 'none',
+          background: isFocused ? (isDark ? '#1e3a5f' : '#eff6ff') : 'transparent',
+          color: isDark ? (isFocused ? '#e0e0e0' : '#aaa') : (isFocused ? '#1a1a1a' : '#444'),
+          fontSize: 11,
+          fontFamily: 'monospace',
+          fontWeight: 600,
+          padding: '0 4px',
+          outline: 'none',
+          cursor: isFocused ? 'text' : 'default',
+          boxSizing: 'border-box',
+          display: 'block',
+        }}
+        autoComplete="off"
+      />
+      <datalist id={datalistId}>
+        {allOpts.map(o => <option key={o} value={o} />)}
+      </datalist>
+    </>
   )
 }
 
