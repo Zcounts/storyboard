@@ -100,6 +100,7 @@ export default function ShotCard({ shot, displayId, useDropdowns, sceneId }) {
             type="text"
             value={shot.cameraName}
             onChange={handleCameraNameChange}
+            onPointerDown={e => e.stopPropagation()}
             className="text-xs bg-transparent border-none outline-none p-0 min-w-0 flex-1"
             style={{ maxWidth: 80 }}
             placeholder="Camera 1"
@@ -111,6 +112,7 @@ export default function ShotCard({ shot, displayId, useDropdowns, sceneId }) {
           type="text"
           value={shot.focalLength}
           onChange={handleFocalLengthChange}
+          onPointerDown={e => e.stopPropagation()}
           className="text-xs bg-transparent border-none outline-none text-right p-0 flex-shrink-0"
           style={{ width: 46 }}
           placeholder="85mm"

@@ -22,4 +22,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /** Save PNG via native Save dialog (base64 is base64 string) */
   savePNG: (defaultName, base64) =>
     ipcRenderer.invoke('dialog:save-png', { defaultName, base64 }),
+
+  /**
+   * Render each page HTML in a hidden BrowserWindow and return PNG
+   * screenshots.  Used by the PDF export path in ExportModal.jsx.
+   *
+   * pageData: Array<{ fullHtml: string, width: number, height: number }>
+   * Returns:  Array<{ pngData: number[]|null, width, height, error?: string }>
+   */
+  exportPDFPages: (pageData) =>
+    ipcRenderer.invoke('dialog:export-pdf-pages', pageData),
 })
