@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 
 /**
  * CustomDropdown — replaces native <datalist> with a fully-controlled dropdown.
@@ -10,6 +11,10 @@ import React, { useState, useRef, useEffect } from 'react'
  *   - Commits the value on blur, Enter, or option click
  *   - Cancels on Escape (restores previous value)
  *   - Saves new custom values via onAddCustomOption on blur
+ *
+ * The options panel is rendered into document.body via createPortal with
+ * position:fixed so it is never clipped by overflow:hidden ancestors such as
+ * table cells. The panel's position is recomputed whenever isOpen becomes true.
  *
  * Used by both SpecsTable (storyboard cards) and ShotlistTab (table cells).
  */
@@ -26,10 +31,13 @@ export default function CustomDropdown({
   const [inputVal, setInputVal] = useState(value ?? '')
   const [isOpen, setIsOpen] = useState(false)
   const [isFocused, setIsFocused] = useState(false)
+  // Position of the panel (computed from the container's bounding rect)
+  const [panelPos, setPanelPos] = useState({ top: 0, left: 0, minWidth: 0 })
+
   const containerRef = useRef(null)
   const inputRef = useRef(null)
   const escapingRef = useRef(false)
-  // Tracks the value selected via option click, so handleBlur can commit it
+  // Tracks the value selected via option click so handleBlur can commit it
   // even if the async setInputVal hasn't flushed yet.
   const pendingValueRef = useRef(null)
 
@@ -37,6 +45,27 @@ export default function CustomDropdown({
   useEffect(() => {
     if (!isFocused) setInputVal(value ?? '')
   }, [value, isFocused])
+
+  // Recompute the panel's fixed-position coordinates each time it opens.
+  // Using position:fixed + getBoundingClientRect means the panel is always
+  // positioned relative to the viewport and is never clipped by any
+  // overflow:hidden ancestor (including table cells).
+  useEffect(() => {
+    if (isOpen && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect()
+      // If the panel would extend below the viewport, open upward instead.
+      const spaceBelow = window.innerHeight - rect.bottom
+      const panelMaxH = 200
+      const openUpward = spaceBelow < panelMaxH && rect.top > panelMaxH
+
+      setPanelPos({
+        top: openUpward ? undefined : rect.bottom,
+        bottom: openUpward ? window.innerHeight - rect.top : undefined,
+        left: rect.left,
+        minWidth: rect.width,
+      })
+    }
+  }, [isOpen])
 
   // Options to display: all when input empty, filtered when user is typing.
   const displayOpts = inputVal.trim()
@@ -117,6 +146,51 @@ export default function CustomDropdown({
   const itemColor      = isDark ? '#e0e0e0' : '#1a1a1a'
   const chevronColor   = isDark ? '#555'    : '#bbb'
 
+  // The options panel — rendered into document.body so it is never clipped.
+  const panelEl = isOpen && displayOpts.length > 0
+    ? createPortal(
+        <div
+          style={{
+            position: 'fixed',
+            top: panelPos.top,
+            bottom: panelPos.bottom,
+            left: panelPos.left,
+            zIndex: 9999,
+            background: dropdownBg,
+            border: `1px solid ${dropdownBorder}`,
+            borderRadius: 3,
+            boxShadow: `0 4px 14px rgba(0,0,0,${isDark ? '0.45' : '0.15'})`,
+            maxHeight: 200,
+            overflowY: 'auto',
+            minWidth: panelPos.minWidth,
+            width: 'max-content',
+          }}
+        >
+          {displayOpts.map(opt => (
+            <div
+              key={opt}
+              // preventDefault keeps input focused; click selects the option.
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => handleSelect(opt)}
+              style={{
+                padding: '5px 10px',
+                cursor: 'pointer',
+                fontSize: 10,
+                fontFamily: 'monospace',
+                color: itemColor,
+                whiteSpace: 'nowrap',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = itemHoverBg }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+            >
+              {opt}
+            </div>
+          ))}
+        </div>,
+        document.body
+      )
+    : null
+
   return (
     <div
       ref={containerRef}
@@ -162,46 +236,8 @@ export default function CustomDropdown({
         </button>
       </div>
 
-      {/* Options panel */}
-      {isOpen && displayOpts.length > 0 && (
-        <div
-          style={{
-            position: 'absolute',
-            top: '100%',
-            left: 0,
-            zIndex: 2000,
-            background: dropdownBg,
-            border: `1px solid ${dropdownBorder}`,
-            borderRadius: 3,
-            boxShadow: `0 4px 14px rgba(0,0,0,${isDark ? '0.45' : '0.15'})`,
-            maxHeight: 200,
-            overflowY: 'auto',
-            minWidth: '100%',
-            width: 'max-content',
-          }}
-        >
-          {displayOpts.map(opt => (
-            <div
-              key={opt}
-              // preventDefault keeps input focused; click selects the option.
-              onMouseDown={e => e.preventDefault()}
-              onClick={() => handleSelect(opt)}
-              style={{
-                padding: '5px 10px',
-                cursor: 'pointer',
-                fontSize: 10,
-                fontFamily: 'monospace',
-                color: itemColor,
-                whiteSpace: 'nowrap',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = itemHoverBg }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
-            >
-              {opt}
-            </div>
-          ))}
-        </div>
-      )}
+      {/* Options panel rendered into document.body via portal */}
+      {panelEl}
     </div>
   )
 }
