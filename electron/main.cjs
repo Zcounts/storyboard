@@ -25,8 +25,15 @@ function createWindow() {
     show: false,
   })
 
-  // Show window once ready to avoid white flash
-  win.once('ready-to-show', () => win.show())
+  // Show window once ready to avoid white flash.
+  // Call focus() alongside show() so the OS grants input focus immediately;
+  // without it the first click is consumed by the window manager to focus the
+  // window rather than being dispatched to the web page (classic Electron
+  // click-to-focus behaviour on Linux / some macOS window managers).
+  win.once('ready-to-show', () => {
+    win.show()
+    win.focus()
+  })
 
   if (isDev) {
     win.loadURL('http://localhost:5173')
