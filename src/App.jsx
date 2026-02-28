@@ -139,6 +139,11 @@ export default function App() {
 
   const projectName = useStore(s => s.projectName)
   const [exportModalOpen, setExportModalOpen] = useState(false)
+  // Autosave restore — kept as React state so we never call window.confirm()
+  // (native OS dialogs steal focus from the webContents; after dismissal
+  // Electron does not automatically return input focus, reproducing the
+  // first-click-doesn't-work bug on every launch where autosave data exists).
+  const [restorePrompt, setRestorePrompt] = useState(null) // { data, timeStr, totalShots }
   // When set, overrides activeTab in the export modal (e.g. explicit pick from toolbar dropdown).
   const [forcedExportTab, setForcedExportTab] = useState(null)
   // pageRefs is a flat array of all storyboard page-document elements
@@ -164,7 +169,10 @@ export default function App() {
     return () => clearInterval(interval)
   }, [autoSave, getProjectData])
 
-  // Restore from autosave on first load if no shots
+  // Restore from autosave on first load if no shots.
+  // We set React state instead of calling window.confirm() so the dialog stays
+  // inside the renderer — native dialogs steal OS focus from the webContents
+  // and Electron does not restore it on dismissal, which breaks the first click.
   useEffect(() => {
     const hasShots = useStore.getState().scenes.some(s => s.shots.length > 0)
     if (!hasShots) {
@@ -177,9 +185,7 @@ export default function App() {
           if (totalShots > 0) {
             const savedTime = localStorage.getItem('autosave_time')
             const timeStr = savedTime ? new Date(savedTime).toLocaleString() : 'recently'
-            if (confirm(`Restore auto-saved project from ${timeStr}? (${totalShots} shots)`)) {
-              useStore.getState().loadProject(data)
-            }
+            setRestorePrompt({ data, timeStr, totalShots })
           }
         } catch {
           // ignore
@@ -318,6 +324,37 @@ export default function App() {
         activeTab={forcedExportTab ?? activeTab}
         projectName={projectName}
       />
+
+      {/* Autosave restore prompt — in-app dialog so focus never leaves the webContents */}
+      {restorePrompt && (
+        <div className="modal-overlay" style={{ zIndex: 500 }} onClick={() => setRestorePrompt(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 400 }}>
+            <p style={{ marginBottom: 8, fontFamily: 'monospace', fontSize: 13 }}>
+              Restore auto-saved project?
+            </p>
+            <p style={{ marginBottom: 16, fontSize: 12, color: '#666' }}>
+              Saved {restorePrompt.timeStr} &mdash; {restorePrompt.totalShots} shot{restorePrompt.totalShots !== 1 ? 's' : ''}
+            </p>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setRestorePrompt(null)}
+                style={{ padding: '6px 16px', cursor: 'pointer', fontFamily: 'monospace', fontSize: 12 }}
+              >
+                Discard
+              </button>
+              <button
+                onClick={() => {
+                  useStore.getState().loadProject(restorePrompt.data)
+                  setRestorePrompt(null)
+                }}
+                style={{ padding: '6px 16px', cursor: 'pointer', fontFamily: 'monospace', fontSize: 12, fontWeight: 700 }}
+              >
+                Restore
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
